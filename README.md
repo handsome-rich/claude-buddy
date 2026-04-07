@@ -136,7 +136,7 @@ npm run build
 ## How It Works
 
 ```
-Claude Code hooks ──curl──▶ Express (127.0.0.1:3120) ──ws──▶ Electron UI
+Claude Code hooks ──curl──▶ Express (127.0.0.1:13120) ──ws──▶ Electron UI
                                     │
                               Gacha roll on Stop
                                     │
