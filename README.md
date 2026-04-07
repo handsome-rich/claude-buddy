@@ -1,93 +1,120 @@
-# Claude Buddy
-
-> A floating desktop widget for monitoring Claude Code sessions, with pixel pets, gacha system, and Dynamic Island mode.
-
 <p align="center">
-  <img src="screenshots/dashboard.png" width="260" alt="Idle">
-  <img src="screenshots/dashboard-running.png" width="260" alt="Running">
+  <img src="icon.ico" width="80" alt="Claude Buddy Icon">
 </p>
 
-## Why?
+<h1 align="center">Claude Buddy</h1>
 
-Running multiple Claude Code sessions in parallel? You need to know:
+<p align="center">
+  <strong>A floating desktop companion for Claude Code power users.</strong><br>
+  Real-time session monitoring &bull; Pixel pet gacha &bull; Dynamic Island mode
+</p>
 
-- Which session is **stuck waiting for permission**? Yellow indicator tells you instantly.
-- Which session **just finished**? Green-to-gray transition catches your eye.
-- Which session is **still running**? Pulsing green dot + real-time tool name shows what Claude is doing.
+<p align="center">
+  <a href="https://github.com/handsome-rich/claude-buddy/releases">
+    <img src="https://img.shields.io/github/v/release/handsome-rich/claude-buddy?style=flat-square" alt="Release">
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/electron-35-47848F?style=flat-square&logo=electron" alt="Electron">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
+  </a>
+</p>
 
-Without Claude Buddy, you cycle through every terminal tab to check. With it, **one glance** gives you the full picture.
+<p align="center">
+  <a href="README_CN.md">中文文档</a>
+</p>
+
+<p align="center">
+  <img src="screenshots/dashboard.png" width="280" alt="Idle State">
+  &nbsp;&nbsp;
+  <img src="screenshots/dashboard-running.png" width="280" alt="Running State">
+</p>
+
+---
+
+## The Problem
+
+Running multiple Claude Code sessions in parallel means constantly switching terminal tabs to check:
+
+- *Is that session waiting for my permission?*
+- *Did that long task finish yet?*
+- *What is Claude doing right now?*
+
+**Claude Buddy** puts all of this into a single floating widget. One glance, full picture.
 
 ---
 
 ## Features
 
-### 1. Session Monitoring
+### Session Monitor
 
-Real-time tracking of all Claude Code sessions via [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks).
+Real-time tracking via Claude Code [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks). Zero configuration needed.
 
-| Status | Color | Meaning |
-|--------|-------|---------|
-| Running | Green (pulsing) | Claude is working |
-| Waiting | Yellow (urgent) | Needs your permission |
-| Idle | Gray | Done or paused |
+| Status | Indicator | Meaning |
+|--------|-----------|---------|
+| Running | :green_circle: Pulsing green | Claude is working |
+| Waiting | :yellow_circle: Solid yellow | Needs your permission |
+| Idle | :white_circle: Gray | Done or paused |
 
-- Waiting sessions auto-sort to the top
-- Double-click to rename sessions (persisted by working directory)
-- Click card to jump to its terminal tab
-- Right-click context menu: Focus / Rename / Remove
+- **Auto-sort**: waiting sessions float to the top so you never miss them
+- **Quick jump**: click a session card to focus its terminal tab
+- **Rename**: double-click to give sessions meaningful names (persisted per directory)
+- **Context menu**: right-click for Focus / Rename / Remove
 
-### 2. Dynamic Island
+### Dynamic Island
 
 <p align="center">
-  <img src="screenshots/dynamic-island.png" width="360" alt="Dynamic Island">
+  <img src="screenshots/dynamic-island.png" width="400" alt="Dynamic Island">
 </p>
 
-Compact floating pill for minimal distraction:
+A compact pill-shaped floating bar for minimal screen distraction:
 
-- Color-coded dots: spot a **yellow dot** = a session needs you
-- Pixel pet animates based on session state
+- Color-coded dots per session (yellow = needs attention)
+- Pixel pet animates with session state changes
 - Draggable, always on top, theme-aware
 
-### 3. Pixel Pet Gacha
+### Pixel Pet Gacha
 
 <p align="center">
-  <img src="screenshots/gacha-drop.png" width="360" alt="Gacha Drop">
+  <img src="screenshots/gacha-drop.png" width="400" alt="Gacha Drop">
 </p>
 
 Every time a Claude Code session ends, there's a chance to hatch a pet. The egg-crack animation plays right inside the Dynamic Island.
 
 **14 pets across 5 rarity tiers:**
 
-| Rarity | Pets | Rule |
-|--------|------|------|
-| **N** | Chick, Snail, Hamster, Turtle | One-time drop |
-| **R** | Cat, Fox, Penguin, Bunny | One-time drop |
-| **SR** | Capybara, Pikachu | One-time drop |
+| Rarity | Pets | Drop Rule |
+|--------|------|-----------|
+| **N** | Chick, Snail, Hamster, Turtle | One-time (removed from pool once owned) |
+| **R** | Cat, Fox, Penguin, Bunny | One-time |
+| **SR** | Capybara, Pikachu | One-time |
 | **SSR** | Lei Yi, Dao Dun | Repeatable |
 | **UR** | Dragon, Phoenix | Repeatable |
 
-- Drop rate: 15% base, +10% if session > 10min, +10% if > 30min
-- N/R/SR removed from pool once obtained
-- SSR/UR x3 triggers **golden evolution**
+- Base drop rate: **15%**, +10% if session > 10 min, +10% if > 30 min
+- Collect 3 of the same SSR/UR pet to trigger **Golden Evolution** (special glow effect)
 
-### 4. Pet Collection
+### Pet Collection
 
 <p align="center">
-  <img src="screenshots/collection.png" width="260" alt="Collection">
+  <img src="screenshots/collection.png" width="280" alt="Pet Collection">
 </p>
 
-View all 14 pets. Click to select your active companion. Golden pets (SSR/UR x3) glow with a star badge.
+Browse all 14 pets. Click any unlocked pet to set it as your active companion. Golden-evolved pets display a star badge and golden border.
 
-### 5. Themes
+### Themes
 
-4 built-in themes: **Dark** / **Light** / **Glass** / **Cyberpunk**, with opacity slider.
+4 built-in themes with opacity slider:
 
-### 6. Window Controls
+| Dark | Light | Glass | Cyberpunk |
+|------|-------|-------|-----------|
+
+### Window Behavior
 
 - Always on top (screen-saver level)
 - Minimize to system tray
-- Frameless, draggable
-- Auto-launch on Claude Code session start
+- Frameless & draggable
+- Auto-launch when Claude Code starts a session
 
 ---
 
@@ -100,12 +127,13 @@ npm install
 npm start
 ```
 
-On first launch, hooks are auto-configured in `~/.claude/settings.json`. The starter pet **Chick** is unlocked by default.
+On first launch, Claude Buddy **automatically configures hooks** in `~/.claude/settings.json`. Your starter pet (Chick) is unlocked immediately.
 
-### Build portable exe (Windows)
+### Build Portable EXE
 
 ```bash
 npm run build
+# Output: dist/ClaudeDashboard.exe
 ```
 
 ---
@@ -113,35 +141,40 @@ npm run build
 ## How It Works
 
 ```
-Claude Code hooks --curl--> Express (127.0.0.1:3120) --WebSocket--> Electron UI
-                                   |
-                             Gacha roll on Stop
-                                   |
-                             ~/.claude/dashboard/gacha.json
+Claude Code hooks ──curl──▶ Express (127.0.0.1:3120) ──ws──▶ Electron UI
+                                    │
+                              Gacha roll on Stop
+                                    │
+                              ~/.claude/dashboard/gacha.json
 ```
 
-## File Structure
+1. Claude Code fires lifecycle hooks (SessionStart / PreToolUse / Stop)
+2. Hooks send HTTP POST to the local Express server inside Electron
+3. Express broadcasts state changes to the renderer via WebSocket
+4. On session stop, a gacha roll is triggered with rarity-weighted RNG
+
+## Project Structure
 
 ```
 claude-buddy/
-├── main.js              # Main process + Express + WebSocket + Gacha
-├── preload.js           # Electron preload
-├── focus-tab.ps1        # PowerShell: switch Windows Terminal tab
+├── main.js              # Main process: Express + WebSocket + Gacha engine
+├── preload.js           # Electron context bridge
+├── focus-tab.ps1        # PowerShell script to focus Windows Terminal tabs
 ├── package.json
 ├── icon.ico
 ├── renderer/
-│   ├── index.html
+│   ├── index.html       # UI shell
 │   ├── style.css        # 4 themes + Dynamic Island + animations
-│   ├── app.js           # WebSocket, rendering, gacha notifications
-│   └── pets.js          # 14 pixel pets + unlock system
+│   ├── app.js           # WebSocket client, rendering, gacha notifications
+│   └── pets.js          # 14 pixel pets (compressed pixel art) + unlock system
 └── screenshots/
 ```
 
 ## Requirements
 
-- Windows 10/11 (Windows Terminal recommended)
-- Node.js >= 18
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- **OS**: Windows 10 / 11 (Windows Terminal recommended)
+- **Runtime**: Node.js >= 18
+- **CLI**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
 
 ## License
 

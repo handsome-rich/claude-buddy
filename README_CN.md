@@ -1,59 +1,82 @@
-# Claude Buddy
-
-> 一个浮动桌面小组件，实时监控 Claude Code 会话状态，附带像素宠物扭蛋系统和灵动岛模式。
-
-[English](README.md) | 中文
-
 <p align="center">
-  <img src="screenshots/dashboard.png" width="260" alt="空闲状态">
-  <img src="screenshots/dashboard-running.png" width="260" alt="运行状态">
+  <img src="icon.ico" width="80" alt="Claude Buddy Icon">
 </p>
 
-## 为什么需要？
+<h1 align="center">Claude Buddy</h1>
 
-同时跑多个 Claude Code 会话时，你需要知道：
+<p align="center">
+  <strong>Claude Code 重度用户的桌面浮动伴侣</strong><br>
+  实时会话监控 &bull; 像素宠物扭蛋 &bull; 灵动岛模式
+</p>
 
-- 哪个会话在**等待授权**？黄色指示灯一眼看到，立刻切过去放行。
-- 哪个会话**跑完了**？绿色变灰色，不用切终端就能感知。
-- 哪个会话**还在跑**？绿色脉冲 + 实时工具名（Read、Edit、Bash...）告诉你 Claude 正在干什么。
+<p align="center">
+  <a href="https://github.com/handsome-rich/claude-buddy/releases">
+    <img src="https://img.shields.io/github/v/release/handsome-rich/claude-buddy?style=flat-square" alt="Release">
+  </a>
+  <img src="https://img.shields.io/badge/平台-Windows-blue?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/electron-35-47848F?style=flat-square&logo=electron" alt="Electron">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License">
+  </a>
+</p>
 
-没有 Claude Buddy，你得逐个切终端标签页检查。有了它，**看一眼**就掌握全局。
+<p align="center">
+  <a href="README.md">English</a>
+</p>
+
+<p align="center">
+  <img src="screenshots/dashboard.png" width="280" alt="空闲状态">
+  &nbsp;&nbsp;
+  <img src="screenshots/dashboard-running.png" width="280" alt="运行状态">
+</p>
+
+---
+
+## 痛点
+
+同时跑多个 Claude Code 会话时，你需要不断切换终端标签页来检查：
+
+- *那个会话是不是在等我授权？*
+- *那个长任务跑完了没？*
+- *Claude 现在在干什么？*
+
+**Claude Buddy** 把这些信息汇聚到一个浮动小组件里。看一眼，全掌握。
 
 ---
 
 ## 功能
 
-### 1. 会话监控（核心）
+### 会话监控
 
-通过 [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) 系统实时追踪所有 Claude Code 会话。
+通过 Claude Code [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) 系统实时追踪所有会话，零配置开箱即用。
 
-| 状态 | 颜色 | 含义 |
-|------|------|------|
-| Running | 绿色（脉冲） | Claude 正在工作 |
-| Waiting | 黄色（醒目） | 需要你授权 |
-| Idle | 灰色 | 完成或暂停 |
+| 状态 | 指示灯 | 含义 |
+|------|---------|------|
+| Running | :green_circle: 绿色脉冲 | Claude 正在工作 |
+| Waiting | :yellow_circle: 黄色常亮 | 需要你授权 |
+| Idle | :white_circle: 灰色 | 完成或暂停 |
 
-- 等待授权的会话自动置顶，不会错过
-- 双击重命名会话（按工作目录持久化）
-- 点击卡片跳转到对应终端标签页
-- 右键菜单：聚焦终端 / 重命名 / 移除
+- **自动置顶**：等待授权的会话始终排在最前，不会遗漏
+- **快速跳转**：点击卡片直接聚焦到对应终端标签页
+- **重命名**：双击为会话起个有意义的名字（按工作目录持久化）
+- **右键菜单**：聚焦终端 / 重命名 / 移除
 
-### 2. 灵动岛模式
+### 灵动岛
 
 <p align="center">
-  <img src="screenshots/dynamic-island.png" width="360" alt="灵动岛">
+  <img src="screenshots/dynamic-island.png" width="400" alt="灵动岛">
 </p>
 
-紧凑的药丸形浮动条，最小化干扰：
+紧凑的药丸形浮动条，最小化屏幕干扰：
 
-- 彩色圆点：看到**黄点**就知道有会话在等你
-- 像素宠物跟随会话状态变化动画（运行/等待/空闲）
-- 可拖动、常驻置顶、跟随主题
+- 彩色圆点对应每个会话（看到黄点 = 有会话在等你）
+- 像素宠物跟随会话状态播放动画
+- 可拖动、常驻置顶、跟随主题配色
 
-### 3. 像素宠物扭蛋
+### 像素宠物扭蛋
 
 <p align="center">
-  <img src="screenshots/gacha-drop.png" width="360" alt="扭蛋掉落">
+  <img src="screenshots/gacha-drop.png" width="400" alt="扭蛋掉落">
 </p>
 
 每当 Claude Code 会话结束，有概率孵化一只宠物。蛋壳破裂动画直接在灵动岛内播放。
@@ -62,34 +85,36 @@
 
 | 稀有度 | 宠物 | 掉落规则 |
 |--------|------|----------|
-| **N** | 小鸡、蜗牛、仓鼠、乌龟 | 仅掉一次 |
-| **R** | 猫、狐狸、企鹅、兔子 | 仅掉一次 |
-| **SR** | 卡皮巴拉、皮卡丘 | 仅掉一次 |
-| **SSR** | 雷伊、刀盾 | 可重复 |
-| **UR** | 龙、凤凰 | 可重复 |
+| **N** | 小鸡、蜗牛、仓鼠、乌龟 | 获得后不再掉落 |
+| **R** | 猫、狐狸、企鹅、兔子 | 获得后不再掉落 |
+| **SR** | 卡皮巴拉、皮卡丘 | 获得后不再掉落 |
+| **SSR** | 雷伊、刀盾 | 可重复掉落 |
+| **UR** | 龙、凤凰 | 可重复掉落 |
 
-- 掉率：基础 15%，会话 > 10 分钟 +10%，> 30 分钟 +10%
-- N/R/SR 获得后从池中移除，不会重复
-- SSR/UR 集齐 3 只触发**金色变异**，特殊光效
+- 基础掉率：**15%**，会话 > 10 分钟 +10%，> 30 分钟再 +10%
+- 同一 SSR/UR 宠物集齐 3 只，触发**金色变异**（特殊光效）
 
-### 4. 宠物图鉴
+### 宠物图鉴
 
 <p align="center">
-  <img src="screenshots/collection.png" width="260" alt="图鉴">
+  <img src="screenshots/collection.png" width="280" alt="图鉴">
 </p>
 
-查看全部 14 只宠物。点击已解锁的宠物切换当前伙伴。金色宠物（SSR/UR x3）带星标和金边。
+浏览全部 14 只宠物，点击已解锁的宠物切换当前伙伴。金色变异宠物带星标和金边。
 
-### 5. 主题
+### 主题
 
-4 套内置主题：**Dark** / **Light** / **Glass** / **Cyberpunk**，支持透明度调节。
+4 套内置主题 + 透明度滑块：
 
-### 6. 窗口控制
+| Dark | Light | Glass | Cyberpunk |
+|------|-------|-------|-----------|
+
+### 窗口行为
 
 - 始终置顶（screen-saver 级别）
 - 最小化到系统托盘
 - 无边框、可拖动
-- Claude Code 启动时自动拉起
+- Claude Code 启动会话时自动拉起
 
 ---
 
@@ -102,12 +127,13 @@ npm install
 npm start
 ```
 
-首次启动会自动配置 hooks 到 `~/.claude/settings.json`。默认解锁初始宠物**小鸡**。
+首次启动会**自动配置 hooks** 到 `~/.claude/settings.json`。初始宠物小鸡立即解锁。
 
-### 打包 exe（Windows）
+### 打包便携 EXE
 
 ```bash
 npm run build
+# 输出: dist/ClaudeDashboard.exe
 ```
 
 ---
@@ -115,35 +141,40 @@ npm run build
 ## 工作原理
 
 ```
-Claude Code hooks --curl--> Express (127.0.0.1:3120) --WebSocket--> Electron UI
-                                   |
-                             Stop 事件触发扭蛋
-                                   |
-                             ~/.claude/dashboard/gacha.json
+Claude Code hooks ──curl──▶ Express (127.0.0.1:3120) ──ws──▶ Electron UI
+                                    │
+                              Stop 事件触发扭蛋
+                                    │
+                              ~/.claude/dashboard/gacha.json
 ```
 
-## 文件结构
+1. Claude Code 触发生命周期钩子（SessionStart / PreToolUse / Stop）
+2. 钩子通过 HTTP POST 发送到 Electron 内嵌的 Express 服务器
+3. Express 通过 WebSocket 广播状态变更到渲染进程
+4. 会话结束时，按稀有度权重进行扭蛋抽取
+
+## 项目结构
 
 ```
 claude-buddy/
-├── main.js              # 主进程 + Express + WebSocket + 扭蛋逻辑
-├── preload.js           # Electron preload
-├── focus-tab.ps1        # PowerShell：切换 Windows Terminal 标签页
+├── main.js              # 主进程：Express + WebSocket + 扭蛋引擎
+├── preload.js           # Electron 上下文桥接
+├── focus-tab.ps1        # PowerShell 脚本：聚焦 Windows Terminal 标签页
 ├── package.json
 ├── icon.ico
 ├── renderer/
-│   ├── index.html
+│   ├── index.html       # UI 外壳
 │   ├── style.css        # 4 套主题 + 灵动岛 + 动画
-│   ├── app.js           # WebSocket、渲染、扭蛋通知
-│   └── pets.js          # 14 只像素宠物 + 解锁系统
+│   ├── app.js           # WebSocket 客户端、渲染、扭蛋通知
+│   └── pets.js          # 14 只像素宠物（压缩像素画）+ 解锁系统
 └── screenshots/
 ```
 
 ## 环境要求
 
-- Windows 10/11（推荐 Windows Terminal）
-- Node.js >= 18
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
+- **系统**：Windows 10 / 11（推荐 Windows Terminal）
+- **运行时**：Node.js >= 18
+- **CLI**：已安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ## License
 
