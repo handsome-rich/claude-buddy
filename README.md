@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="icon.ico" width="80" alt="Claude Buddy Icon">
-</p>
-
-<h1 align="center">Claude Buddy</h1>
+<h1 align="center"><img src="icon.ico" width="36" alt="Claude Buddy Icon">&nbsp;Claude Buddy</h1>
 
 <p align="center">
   <strong>A floating desktop companion for Claude Code power users.</strong><br>
@@ -58,8 +54,7 @@ Real-time tracking via Claude Code [hooks](https://docs.anthropic.com/en/docs/cl
 
 - **Auto-sort**: waiting sessions float to the top so you never miss them
 - **Quick jump**: click a session card to focus its terminal tab
-- **Rename**: double-click to give sessions meaningful names (persisted per directory)
-- **Context menu**: right-click for Focus / Rename / Remove
+- **Context menu**: right-click for Focus / Rename / Remove (names persisted per directory)
 
 ### Dynamic Island
 

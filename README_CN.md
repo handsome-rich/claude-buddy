@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="icon.ico" width="80" alt="Claude Buddy Icon">
-</p>
-
-<h1 align="center">Claude Buddy</h1>
+<h1 align="center"><img src="icon.ico" width="36" alt="Claude Buddy Icon">&nbsp;Claude Buddy</h1>
 
 <p align="center">
   <strong>Claude Code 重度用户的桌面浮动伴侣</strong><br>
@@ -58,8 +54,7 @@
 
 - **自动置顶**：等待授权的会话始终排在最前，不会遗漏
 - **快速跳转**：点击卡片直接聚焦到对应终端标签页
-- **重命名**：双击为会话起个有意义的名字（按工作目录持久化）
-- **右键菜单**：聚焦终端 / 重命名 / 移除
+- **右键菜单**：聚焦终端 / 重命名 / 移除（名称按工作目录持久化）
 
 ### 灵动岛
 
