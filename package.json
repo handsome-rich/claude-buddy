@@ -1,0 +1,45 @@
+{
+  "name": "claude-dashboard",
+  "version": "1.0.0",
+  "description": "Desktop floating widget to monitor Claude Code sessions",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable -c.forceCodeSigning=false",
+    "build:install": "electron-builder --win nsis -c.forceCodeSigning=false"
+  },
+  "build": {
+    "appId": "com.claude.dashboard",
+    "productName": "Claude Dashboard",
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "ClaudeDashboard.exe"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "focus-tab.ps1",
+      "renderer/**/*",
+      "node_modules/**/*"
+    ],
+    "asar": true
+  },
+  "dependencies": {
+    "express": "^4.22.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.8.1"
+  }
+}
