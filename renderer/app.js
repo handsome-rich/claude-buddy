@@ -1,5 +1,6 @@
 // ── State ──────────────────────────────────────────────────────────────
-const API_BASE = 'http://127.0.0.1:3120';
+const API_BASE = window.location.origin;
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 let sessions = [];
 let ws = null;
 let reconnectTimer = null;
@@ -13,7 +14,7 @@ const statusText = document.getElementById('status-text');
 
 // ── WebSocket ─────────────────────────────────────────────────────────
 function connect() {
-  ws = new WebSocket('ws://127.0.0.1:3120/ws');
+  ws = new WebSocket(WS_BASE);
 
   ws.onopen = () => {
     statusDot.className = 'dot dot-connected';

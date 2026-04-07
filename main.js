@@ -8,6 +8,7 @@ const { exec } = require('child_process');
 
 // ── Data ──────────────────────────────────────────────────────────────
 const sessions = new Map();
+const DEFAULT_PORT = 13120;
 const CONFIG_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.claude', 'dashboard');
 const NAMES_FILE = path.join(CONFIG_DIR, 'session-names.json');
 const PREFS_FILE = path.join(CONFIG_DIR, 'prefs.json');
@@ -23,13 +24,13 @@ function saveJSON(file, data) {
 }
 
 const sessionNames = loadJSON(NAMES_FILE, {});
-const prefs = loadJSON(PREFS_FILE, { port: 3120 });
+const prefs = loadJSON(PREFS_FILE, { port: DEFAULT_PORT });
 let gachaData = loadJSON(GACHA_FILE) || { unlocked: {}, history: [] };
 // Ensure starter pet is always unlocked
 if (!gachaData.unlocked.chick) gachaData.unlocked.chick = 1;
 
 // ── HTTP Server + WebSocket ───────────────────────────────────────────
-const PORT = prefs.port || 3120;
+const PORT = prefs.port || DEFAULT_PORT;
 const expressApp = express();
 expressApp.use(express.json());
 expressApp.use(express.static(path.join(__dirname, 'renderer')));
@@ -385,6 +386,11 @@ function ensureHooksConfigured() {
   const hookUrl = `http://127.0.0.1:${PORT}/sessions/event`;
   const curlCmd = `curl -s -X POST ${hookUrl} -H 'Content-Type: application/json' -d @- > /dev/null 2>&1`;
   const hookEntry = { matcher: '', hooks: [{ type: 'command', command: curlCmd }] };
+  const isDashboardHook = (hook) => {
+    if (!hook) return false;
+    const target = hook.url || hook.command || '';
+    return target.includes('127.0.0.1:') && target.includes('/sessions/event');
+  };
 
   const events = [
     'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
@@ -395,13 +401,27 @@ function ensureHooksConfigured() {
 
   let changed = false;
   for (const ev of events) {
-    const existing = settings.hooks[ev];
-    const alreadyConfigured = Array.isArray(existing) &&
-      existing.some(e => Array.isArray(e.hooks) && e.hooks.some(h =>
-        h.url === hookUrl || (h.command && h.command.includes(hookUrl))
-      ));
-    if (!alreadyConfigured) {
-      if (!Array.isArray(existing)) settings.hooks[ev] = [];
+    const existing = Array.isArray(settings.hooks[ev]) ? settings.hooks[ev] : [];
+    let foundDashboardHook = false;
+
+    settings.hooks[ev] = existing.map((entry) => {
+      if (!Array.isArray(entry.hooks)) return entry;
+
+      let entryChanged = false;
+      const hooks = entry.hooks.map((hook) => {
+        if (!isDashboardHook(hook)) return hook;
+        foundDashboardHook = true;
+        if (hook.command === curlCmd && hook.type === 'command') return hook;
+        entryChanged = true;
+        return { type: 'command', command: curlCmd };
+      });
+
+      if (!entryChanged) return entry;
+      changed = true;
+      return { ...entry, hooks };
+    });
+
+    if (!foundDashboardHook) {
       settings.hooks[ev].push(hookEntry);
       changed = true;
     }
