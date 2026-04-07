@@ -168,7 +168,7 @@ claude-buddy/
 ## Requirements
 
 - **OS**: Windows 10 / 11 (Windows Terminal recommended)
-- **Runtime**: Node.js >= 18
+- **Runtime**: Node.js >= 22
 - **CLI**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
 
 ## License

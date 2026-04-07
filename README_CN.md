@@ -168,7 +168,7 @@ claude-buddy/
 ## 环境要求
 
 - **系统**：Windows 10 / 11（推荐 Windows Terminal）
-- **运行时**：Node.js >= 18
+- **运行时**：Node.js >= 22
 - **CLI**：已安装 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ## License

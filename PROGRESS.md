@@ -9,7 +9,7 @@
 - **前端**: Electron + 原生 HTML/CSS/JS（无框架）
 - **后端**: Express + WebSocket（内嵌在 Electron 主进程）
 - **通信**: Claude Code hooks → curl POST → Express → WebSocket → 前端
-- **端口**: 127.0.0.1:3120
+- **端口**: 127.0.0.1:13120
 - **配置目录**: `~/.claude/dashboard/`（session-names.json、prefs.json、gacha.json）
 
 ## 文件结构
@@ -135,8 +135,8 @@ claude-dashboard/
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash -c '..auto-launch...' && curl -s -X POST http://127.0.0.1:3120/sessions/event -H 'Content-Type: application/json' -d @- > /dev/null 2>&1" }] }],
-    "UserPromptSubmit": [{ "matcher": "", "hooks": [{ "type": "command", "command": "curl -s -X POST http://127.0.0.1:3120/sessions/event ... > /dev/null 2>&1" }] }],
+    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "bash -c '..auto-launch...' && curl -s -X POST http://127.0.0.1:13120/sessions/event -H 'Content-Type: application/json' -d @- > /dev/null 2>&1" }] }],
+    "UserPromptSubmit": [{ "matcher": "", "hooks": [{ "type": "command", "command": "curl -s -X POST http://127.0.0.1:13120/sessions/event ... > /dev/null 2>&1" }] }],
     // PreToolUse, PostToolUse, PostToolUseFailure, PermissionRequest, Notification, Stop, SessionEnd 同上
   }
 }
