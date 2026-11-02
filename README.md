@@ -107,6 +107,7 @@ A small always-on-top pet that follows your sessions. Your active pet from the c
 - **Click** the pet to show or hide the dashboard. **Drag** it anywhere; the position is saved.
 - **Show/hide:** `Ctrl+Alt+B`, the pet button in the title bar, or the tray menu. Change the hotkey with `hotkey` in `prefs.json`.
 - **Look:** upload your own pet image (also used for the tray icon) and set the pet's transparency in the Pet Collection.
+- **Spritesheet pets:** import a Codex-style sheet in the Pet Collection. Claude Code (`claude -p`) reads the grid once and saves `pet.json` in `~/.claude/dashboard/sprite-pets/`. Without it, the standard Codex layout is used.
 
 ### Themes
 

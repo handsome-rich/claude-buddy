@@ -20,6 +20,10 @@
     #pet-wrap.custom[data-state="idle"] #custom-icon { animation: icon-idle 2.4s ease-in-out infinite; }
     #pet-wrap.custom[data-state="running"] #custom-icon { animation: icon-run .5s ease-in-out infinite; }
     #pet-wrap.custom[data-state="waiting"] #custom-icon { animation: icon-wait .6s ease-in-out infinite; }
+    #sprite { display: none; height: 63px; pointer-events: none; background-repeat: no-repeat; image-rendering: auto; }
+    #pet-wrap.sprite #capybara, #pet-wrap.sprite #custom-icon { display: none; }
+    #pet-wrap.sprite #sprite { display: block; }
+    #pet-wrap.sprite { margin-top: -6px; }
     @keyframes icon-idle { 50% { transform: translateY(-3px); } }
     @keyframes icon-run { 50% { transform: translateY(-10px); } }
     @keyframes icon-wait { 25% { transform: rotate(-6deg); } 75% { transform: rotate(6deg); } }
@@ -48,6 +52,7 @@
     <div id="progress"></div>
     <div id="pet-wrap">
       <canvas id="capybara" width="42" height="30"></canvas>
+      <div id="sprite"></div>
       <img id="custom-icon" alt="">
       <div id="badge"></div>
     </div>

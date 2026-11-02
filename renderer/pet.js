@@ -64,7 +64,61 @@ function applyStatus() {
     window.setPetState('idle');
   }
   wrap.dataset.state = any('waiting') ? 'waiting' : any('running') ? 'running' : 'idle';
+  playSprite();
   renderProgress();
+}
+
+// ── Spritesheet pet (Codex layout; the manifest is written by the main process) ──
+const sprite = document.getElementById('sprite');
+const SPRITE_H = 63;
+const SPRITE_FRAME_MS = 140;
+let spritePet = null, spriteTimer = null, spriteRow = '', spriteHover = false;
+
+function spriteRowName() {
+  const st = wrap.dataset.state;
+  if (st === 'waiting' || st === 'running') return st;
+  if (unreviewed.size) return 'review';
+  return spriteHover ? 'waving' : 'idle';
+}
+
+function playSprite() {
+  if (!spritePet) return;
+  const name = spriteRowName();
+  if (name === spriteRow) return;
+  const m = spritePet.manifest;
+  const r = m.rows.find(x => x.state === name) || m.rows.find(x => x.state === 'idle') || m.rows[0];
+  if (!r) return;
+  spriteRow = name;
+  clearInterval(spriteTimer);
+  const k = SPRITE_H / m.cell.h;
+  let f = 0;
+  const draw = () => {
+    sprite.style.backgroundPosition = `${-f * m.cell.w * k}px ${-r.row * m.cell.h * k}px`;
+    f = (f + 1) % r.frames;
+  };
+  draw();
+  spriteTimer = setInterval(draw, SPRITE_FRAME_MS);
+}
+
+function loadSpritePet() {
+  fetch(`${API_BASE}/api/sprite-pets`).then(r => r.json()).then(d => {
+    const pet = d.pets.find(p => p.id === d.active);
+    clearInterval(spriteTimer);
+    spriteRow = '';
+    if (!pet) { spritePet = null; wrap.classList.remove('sprite'); wrap.style.width = ''; return; }
+    const img = new Image();
+    img.onload = () => {
+      const m = pet.manifest, k = SPRITE_H / m.cell.h;
+      spritePet = pet;
+      sprite.style.width = `${Math.round(m.cell.w * k)}px`;
+      sprite.style.backgroundImage = `url("${API_BASE}${pet.url}")`;
+      sprite.style.backgroundSize = `${img.naturalWidth * k}px ${img.naturalHeight * k}px`;
+      wrap.style.width = sprite.style.width;
+      wrap.classList.add('sprite');
+      playSprite();
+    };
+    img.src = `${API_BASE}${pet.url}`;
+  }).catch(() => {});
 }
 
 // Live progress: one compact line, expanded to one line per running session while hovering the pet.
@@ -106,8 +160,8 @@ function renderProgress() {
   progress.classList.add('show');
 }
 
-wrap.addEventListener('mouseenter', () => { progressAll = true; renderProgress(); });
-wrap.addEventListener('mouseleave', () => { progressAll = false; renderProgress(); });
+wrap.addEventListener('mouseenter', () => { progressAll = true; spriteHover = true; playSprite(); renderProgress(); });
+wrap.addEventListener('mouseleave', () => { progressAll = false; spriteHover = false; playSprite(); renderProgress(); });
 
 // "Ready for review": finished sessions stay marked until you look at the pet
 function markReviewed() {
@@ -162,6 +216,7 @@ function connect() {
   ws.onopen = () => {
     loadUnlocks();
     loadCustomIcon();
+    loadSpritePet();
     loadOpacity();
     fetch(`${API_BASE}/api/sessions`).then(r => r.json()).then(list => {
       prevStates = null; // reseed silently after a reconnect
@@ -173,6 +228,7 @@ function connect() {
     if (msg.type === 'sessions') onSessions(msg.sessions);
     else if (msg.type === 'gacha_drop') loadUnlocks();
     else if (msg.type === 'custom_icon') loadCustomIcon();
+    else if (msg.type === 'sprite_pet') loadSpritePet();
     else if (msg.type === 'pet_opacity') wrap.style.opacity = msg.value;
   };
   ws.onclose = () => setTimeout(connect, 2000);

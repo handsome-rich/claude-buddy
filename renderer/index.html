@@ -76,6 +76,14 @@
         <input id="icon-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
       </div>
       <div class="custom-icon-row">
+        <span>Codex spritesheet</span>
+        <button id="sprite-upload" class="custom-icon-btn">Import sheet</button>
+        <button id="sprite-reset" class="custom-icon-btn">Use default pet</button>
+        <input id="sprite-file" type="file" accept="image/png,image/webp" hidden>
+        <span id="sprite-status" class="sprite-status"></span>
+      </div>
+      <div id="sprite-list" class="custom-icon-row sprite-list"></div>
+      <div class="custom-icon-row">
         <span>Pet transparency</span>
         <input id="pet-opacity" class="pet-opacity" type="range" min="30" max="100" step="5" value="100">
         <output id="pet-opacity-val" class="pet-opacity-val">100%</output>

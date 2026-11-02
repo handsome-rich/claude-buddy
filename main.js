@@ -4,7 +4,7 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // ── Data ──────────────────────────────────────────────────────────────
 const sessions = new Map();
@@ -202,6 +202,103 @@ expressApp.delete('/api/custom-icon', (_req, res) => {
   fs.rmSync(CUSTOM_ICON_FILE, { force: true });
   broadcast({ type: 'custom_icon' });
   refreshAppIcon();
+  res.json({ ok: true });
+});
+
+// ── Spritesheet pets (Codex layout) ──────────────────────────────────
+// The user uploads only the sheet. Claude reads it once and writes pet.json next to it.
+const SPRITE_DIR = path.join(CONFIG_DIR, 'sprite-pets');
+const SHEET_TYPES = new Set(['image/png', 'image/webp']);
+const CODEX_ROWS = [['idle', 6], ['running-right', 8], ['running-left', 8], ['waving', 4], ['jumping', 5], ['failed', 8], ['waiting', 6], ['running', 6], ['review', 6]];
+const spriteFile = (id) => fs.readdirSync(path.join(SPRITE_DIR, id)).find(f => f.startsWith('spritesheet.'));
+
+function defaultManifest(w, h) {
+  const columns = 8;
+  const cw = Math.round(w / columns);
+  const ch = Math.round(h / CODEX_ROWS.length);
+  return { cell: { w: cw, h: ch }, columns, rows: CODEX_ROWS.map(([state, frames], row) => ({ state, row, frames })) };
+}
+
+// Keep what Claude returned only when it fits the image. Missing states fall back to the Codex layout.
+function cleanManifest(raw, w, h) {
+  const base = defaultManifest(w, h);
+  try {
+    const columns = Number(raw.columns), cw = Number(raw.cell && raw.cell.w), ch = Number(raw.cell && raw.cell.h);
+    if (!(columns >= 1 && cw >= 8 && ch >= 8 && cw * columns <= w + 2 && ch <= h)) return { manifest: base, fromClaude: false };
+    const maxRow = Math.floor(h / ch) - 1;
+    const rows = [];
+    for (const r of raw.rows || []) {
+      const row = Number(r.row), frames = Number(r.frames);
+      if (typeof r.state === 'string' && row >= 0 && row <= maxRow && frames >= 1 && frames <= columns) rows.push({ state: r.state, row, frames });
+    }
+    for (const r of base.rows) if (!rows.some(x => x.state === r.state) && r.row <= maxRow) rows.push(r);
+    return { manifest: { cell: { w: cw, h: ch }, columns, rows }, fromClaude: true };
+  } catch { return { manifest: base, fromClaude: false }; }
+}
+
+// One headless Claude Code call. Project settings only, so the user's hooks
+// (and this dashboard) don't see it as a session. Any failure -> null.
+function askClaudeForManifest(imgPath, w, h) {
+  const prompt = `Read the image file ${imgPath} (${w}x${h} px). It is a sprite sheet for a desktop pet. ` +
+    'Work out the grid: cell size, columns, and for each row the animation state and the number of frames that are not empty. ' +
+    'Use these state names when they fit: idle, running-right, running-left, waving, jumping, failed, waiting, running, review. ' +
+    'Reply with JSON only, no text around it, in this shape: {"cell":{"w":192,"h":208},"columns":8,"rows":[{"state":"idle","row":0,"frames":6}]}';
+  return new Promise((resolve) => {
+    execFile('claude', ['-p', prompt, '--allowedTools', 'Read', '--add-dir', path.dirname(imgPath), '--setting-sources', 'project', '--output-format', 'text'],
+      { cwd: path.dirname(imgPath), timeout: 120000, windowsHide: true, maxBuffer: 1 << 20 },
+      (err, stdout) => {
+        const m = !err && /\{[\s\S]*\}/.exec(stdout || '');
+        try { resolve(m ? JSON.parse(m[0]) : null); } catch { resolve(null); }
+      });
+  });
+}
+
+function listSpritePets() {
+  if (!fs.existsSync(SPRITE_DIR)) return [];
+  return fs.readdirSync(SPRITE_DIR).filter(id => fs.existsSync(path.join(SPRITE_DIR, id, 'pet.json'))).map(id => {
+    const m = loadJSON(path.join(SPRITE_DIR, id, 'pet.json'));
+    return m && { id, name: m.displayName || id, manifest: m, url: `/sprite-pet/${id}/sheet?v=${m.createdAt || 0}` };
+  }).filter(Boolean);
+}
+
+expressApp.get('/api/sprite-pets', (_req, res) => res.json({ active: prefs.spritePet || null, pets: listSpritePets() }));
+expressApp.get('/sprite-pet/:id/sheet', (req, res) => {
+  const id = path.basename(req.params.id);
+  try { res.sendFile(path.join(SPRITE_DIR, id, spriteFile(id))); } catch { res.sendStatus(404); }
+});
+// Import runs Claude, so it needs the custom header (forces a CORS preflight)
+expressApp.post('/api/sprite-pets', express.raw({ type: [...SHEET_TYPES], limit: '12mb' }), async (req, res) => {
+  if (req.get('x-buddy-pet') !== '1') return res.status(403).json({ error: 'forbidden' });
+  const w = parseInt(req.get('x-sheet-w'), 10), h = parseInt(req.get('x-sheet-h'), 10);
+  if (!Buffer.isBuffer(req.body) || !req.body.length || !(w > 0 && h > 0)) return res.status(400).json({ error: 'PNG or WebP sheet up to 12 MB' });
+  const name = decodeURIComponent(req.get('x-sheet-name') || 'pet').replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '-').slice(0, 40) || 'pet';
+  const id = `${name}-${Date.now().toString(36)}`;
+  const dir = path.join(SPRITE_DIR, id);
+  const ext = req.get('content-type').startsWith('image/webp') ? 'webp' : 'png';
+  fs.mkdirSync(dir, { recursive: true });
+  const img = path.join(dir, `spritesheet.${ext}`);
+  fs.writeFileSync(img, req.body);
+  const { manifest, fromClaude } = cleanManifest(await askClaudeForManifest(img, w, h), w, h);
+  const pet = { id, displayName: name, description: '', spritesheetPath: `spritesheet.${ext}`, generatedBy: fromClaude ? 'claude' : 'codex-default', createdAt: Date.now(), ...manifest };
+  saveJSON(path.join(dir, 'pet.json'), pet);
+  prefs.spritePet = id;
+  saveJSON(PREFS_FILE, prefs);
+  broadcast({ type: 'sprite_pet' });
+  res.json({ ok: true, id, generatedBy: pet.generatedBy });
+});
+expressApp.post('/api/sprite-pets/active', (req, res) => {
+  const id = req.body && req.body.id;
+  if (id && !listSpritePets().some(p => p.id === id)) return res.status(404).json({ error: 'not found' });
+  prefs.spritePet = id || null;
+  saveJSON(PREFS_FILE, prefs);
+  broadcast({ type: 'sprite_pet' });
+  res.json({ ok: true });
+});
+expressApp.delete('/api/sprite-pets/:id', (req, res) => {
+  const id = path.basename(req.params.id);
+  fs.rmSync(path.join(SPRITE_DIR, id), { recursive: true, force: true });
+  if (prefs.spritePet === id) { prefs.spritePet = null; saveJSON(PREFS_FILE, prefs); }
+  broadcast({ type: 'sprite_pet' });
   res.json({ ok: true });
 });
 

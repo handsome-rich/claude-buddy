@@ -1103,3 +1103,7 @@ body.mini #island-drop-slot {
 .custom-icon-btn:hover { background: rgba(128,128,128,.2); }
 .pet-opacity { flex: 0 0 120px; accent-color: #6c63ff; cursor: pointer; }
 .pet-opacity-val { width: 34px; text-align: right; opacity: .8; font-variant-numeric: tabular-nums; }
+
+.sprite-status { font-size: 11px; opacity: .7; }
+.sprite-list { flex-wrap: wrap; gap: 4px; }
+.sprite-list .custom-icon-btn.active { border-color: #6c63ff; background: rgba(108,99,255,.35); }
