@@ -4,7 +4,7 @@ const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // ── Data ──────────────────────────────────────────────────────────────
 const sessions = new Map();
@@ -43,12 +43,31 @@ function broadcast(data) {
   wss.clients.forEach(c => { if (c.readyState === 1) c.send(msg); });
 }
 
+// Session title = /rename title, else Claude's auto title, read from the transcript
+const titleCache = new Map(); // id -> { mtime, checkedAt, title }
+function readSessionTitle(id, file) {
+  if (!file) return null;
+  const c = titleCache.get(id);
+  if (c && Date.now() - c.checkedAt < 5000) return c.title;
+  try {
+    const { mtimeMs } = fs.statSync(file);
+    if (c && c.mtime === mtimeMs) { c.checkedAt = Date.now(); return c.title; }
+    let custom = null, auto = null;
+    for (const line of fs.readFileSync(file, 'utf-8').split(/\r?\n/)) {
+      if (line.includes('"custom-title"')) { try { custom = JSON.parse(line).customTitle || custom; } catch {} }
+      else if (line.includes('"ai-title"')) { try { auto = JSON.parse(line).aiTitle || auto; } catch {} }
+    }
+    const title = custom || auto || null;
+    titleCache.set(id, { mtime: mtimeMs, checkedAt: Date.now(), title });
+    return title;
+  } catch { return c ? c.title : null; }
+}
+
 function getSessionList() {
-  return Array.from(sessions.entries()).map(([id, s]) => ({
-    id,
-    ...s,
-    name: sessionNames[id] || sessionNames[s.cwd] || null,
-  }));
+  return Array.from(sessions.entries()).map(([id, s]) => {
+    const title = readSessionTitle(id, s.transcriptPath);
+    return { id, ...s, title, name: sessionNames[id] || title || sessionNames[s.cwd] || null };
+  });
 }
 
 function updateSession(sessionId, patch) {
@@ -78,7 +97,7 @@ expressApp.post('/sessions/event', (req, res) => {
   if (!sessionId) return res.json({ continue: true });
 
   const event = body.hook_event_name;
-  const base = { cwd: body.cwd, permissionMode: body.permission_mode };
+  const base = { cwd: body.cwd, permissionMode: body.permission_mode, transcriptPath: body.transcript_path };
 
   switch (event) {
     case 'SessionStart':
@@ -219,10 +238,19 @@ expressApp.post('/api/sessions/:id/focus', (req, res) => {
   const session = sessions.get(id);
   if (!session?.cwd) return res.json({ ok: false, error: 'no cwd' });
 
-  const scriptPath = path.join(__dirname, 'focus-tab.ps1');
   const cwd = (session.cwd || '').replace(/\//g, '\\');
-  exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -SessionId "${id}" -TargetCwd "${cwd}"`, (err, stdout) => {
-    res.json({ ok: !err, result: stdout?.trim() });
+  const title = readSessionTitle(id, session.transcriptPath) || '';
+  const runScript = (name, args, cb) => execFile('powershell',
+    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, name), ...args],
+    { windowsHide: true }, (err, stdout) => cb(err, (stdout || '').trim()));
+
+  runScript('focus-tab.ps1', ['-SessionId', id, '-TargetCwd', cwd, '-Title', title], (err, result) => {
+    if (!err && result.startsWith('focused_tab')) return res.json({ ok: true, result });
+    // Not a Windows Terminal tab: try the VS Code window, then the Claude desktop app
+    runScript('focus-desktop.ps1', ['-Title', title, '-TargetCwd', cwd], (err2, r2) => {
+      const ok = !err2 && r2.startsWith('focused_');
+      res.json({ ok, result: ok ? r2 : result });
+    });
   });
 });
 

@@ -29,6 +29,7 @@
       "main.js",
       "preload.js",
       "focus-tab.ps1",
+      "focus-desktop.ps1",
       "renderer/**/*",
       "node_modules/**/*"
     ],
