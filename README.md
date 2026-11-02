@@ -105,6 +105,8 @@ A small always-on-top pet that follows your sessions. Your active pet from the c
 - **Live progress:** one compact line for the latest step, e.g. `Bash: npm test`. Hover the pet to see one line per running session.
 - **Done and ask bubbles:** `✓ name` when a session finishes, `! name` when it needs you. Click a bubble to focus that session.
 - **Click** the pet to show or hide the dashboard. **Drag** it anywhere; the position is saved.
+- **Prompt box:** double-click, right-click or `Ctrl+Alt+P`. Send goes to a new chat in the Claude desktop app. Rewrite sends your draft to one fixed chat (default title "Rewrite", set `rewriteChat` in `prefs.json`) with a style: Fix, Polish, Shorter, Friendly or Formal. Both work through UI Automation, so the app can stay in the background.
+- **Rewrite selection:** `Ctrl+Alt+R` copies the selected text (or uses the clipboard) and sends it to the Rewrite chat. Your clipboard is restored.
 - **Show/hide:** `Ctrl+Alt+B`, the pet button in the title bar, or the tray menu. Change the hotkey with `hotkey` in `prefs.json`.
 
 ### Themes

@@ -30,12 +30,34 @@
     #progress.compact.show { display: flex; }
     #progress.compact .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
     #progress.compact .n { flex: none; }
+    #prompt { display: none; box-sizing: border-box; width: 212px; margin-bottom: 6px; padding: 8px; border-radius: 10px; background: #1a1a2e; border: 1px solid #6c63ff; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+    #prompt.show { display: block; }
+    #prompt textarea { display: block; box-sizing: border-box; width: 100%; height: 64px; resize: none; border: 0; border-radius: 6px; padding: 6px; background: rgba(255,255,255,.08); color: #fff; font: 12px/1.35 'Segoe UI', sans-serif; outline: none; user-select: text; }
+    #prompt .hint { margin-top: 4px; color: #fff; opacity: .5; font-size: 10px; }
+    #prompt .tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+    .tabs button { border: 0; border-radius: 5px; padding: 2px 9px; background: transparent; color: #fff; opacity: .55; font-size: 11px; font-weight: 600; cursor: pointer; }
+    #prompt-close { margin-left: auto; opacity: .7; font-size: 14px; line-height: 1; padding: 1px 7px; }
+    .tabs button.on { background: #6c63ff; opacity: 1; }
+    .chips { display: none; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .chips button { border: 1px solid #44445f; border-radius: 9px; padding: 0 7px; background: transparent; color: #fff; font-size: 10px; line-height: 16px; cursor: pointer; }
+    .chips button.on { border-color: #6c63ff; background: rgba(108,99,255,.35); }
+    #prompt[data-mode="rewrite"] .chips { display: flex; }
   </style>
 </head>
 <body>
   <div id="stage">
     <div id="bubble"></div>
     <div id="progress"></div>
+    <div id="prompt" data-mode="send">
+      <div class="tabs">
+        <button data-mode="send">Send</button>
+        <button data-mode="rewrite">Rewrite</button>
+        <button id="prompt-close" title="Close (Esc)">×</button>
+      </div>
+      <textarea id="prompt-input" placeholder="Message to Claude" spellcheck="false"></textarea>
+      <div class="chips" id="prompt-chips"></div>
+      <div class="hint" id="prompt-hint"></div>
+    </div>
     <div id="pet-wrap">
       <canvas id="capybara" width="42" height="30"></canvas>
       <div id="badge"></div>

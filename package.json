@@ -27,6 +27,8 @@
     },
     "files": [
       "main.js",
+      "send-to-claude.ps1",
+      "rewrite-io.ps1",
       "preload.js",
       "focus-tab.ps1",
       "renderer/**/*",

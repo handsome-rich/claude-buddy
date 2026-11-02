@@ -2,9 +2,11 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShor
 const path = require('path');
 const express = require('express');
 const { WebSocketServer } = require('ws');
+const os = require('os');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // ── Data ──────────────────────────────────────────────────────────────
 const sessions = new Map();
@@ -289,6 +291,9 @@ const PET_W = 220;
 const PET_H = 190;
 const PET_MAX_H = 460;
 const DEFAULT_HOTKEY = 'CommandOrControl+Alt+B';
+const DEFAULT_PROMPT_HOTKEY = 'CommandOrControl+Alt+P';
+const DEFAULT_REWRITE_HOTKEY = 'CommandOrControl+Alt+R';
+const MAX_PROMPT_CHARS = 8000;
 let petWindow = null;
 let petDrag = null;
 
@@ -356,16 +361,105 @@ function togglePet() {
   setPetVisible(!petWindow.isVisible());
 }
 
-// Show/hide the pet from anywhere. Set "hotkey" in prefs.json to change it.
-function registerHotkey() {
-  const accel = prefs.hotkey || DEFAULT_HOTKEY;
+function registerShortcut(accel, handler) {
   try {
-    if (!globalShortcut.register(accel, togglePet)) {
+    if (!globalShortcut.register(accel, handler)) {
       console.error(`Hotkey ${accel} could not be registered (already in use?)`);
     }
   } catch (err) {
     console.error(`Hotkey ${accel} is invalid:`, err.message);
   }
+}
+
+// Global hotkeys. Change them with "hotkey", "promptHotkey" and "rewriteHotkey" in prefs.json.
+function registerHotkey() {
+  registerShortcut(prefs.hotkey || DEFAULT_HOTKEY, togglePet);
+  registerShortcut(prefs.promptHotkey || DEFAULT_PROMPT_HOTKEY, openPrompt);
+  registerShortcut(prefs.rewriteHotkey || DEFAULT_REWRITE_HOTKEY, rewriteSelection);
+}
+
+// Show the pet if hidden, take keyboard focus, and ask the page to open its prompt box
+function openPrompt() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (!petWindow.isVisible()) setPetVisible(true);
+  petWindow.focus();
+  petWindow.webContents.send('open-prompt');
+}
+
+ipcMain.on('pet-focus', () => {
+  if (petWindow && !petWindow.isDestroyed()) petWindow.focus();
+});
+
+// ── Send to the Claude desktop app (UI Automation, see send-to-claude.ps1) ──
+// Plain prompts go to a new chat. Rewrite requests go to one chat, found by title in the sidebar (default "Rewrite").
+const DEFAULT_REWRITE_CHAT = 'Rewrite';
+const REWRITE_STYLES = {
+  fix: 'Fix grammar, spelling and punctuation only. Keep the wording, tone and structure.',
+  polish: 'Make it clearer and more natural. Keep the meaning, the voice and roughly the same length.',
+  shorter: 'Make it shorter and tighter. Keep every key point.',
+  friendly: 'Make the tone warmer and friendlier. Keep the meaning.',
+  formal: 'Make the tone formal and professional. Keep the meaning.',
+};
+
+function rewritePrompt(draft, style) {
+  const how = REWRITE_STYLES[style] || REWRITE_STYLES.polish;
+  return `Rewrite and improve the draft below. ${how} Keep the original language and formatting. ` +
+    'Reply with only the improved text, with no preface or explanation.\n\nDraft:\n' + draft;
+}
+
+function petSend(channel, payload) {
+  if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send(channel, payload);
+}
+
+let sendingPrompt = false;
+
+// opts.rewrite = style key sends the text as a rewrite request to the Rewrite chat
+function sendToClaude(text, opts = {}) {
+  return new Promise((resolve) => {
+    const raw = typeof text === 'string' ? text.trim().slice(0, MAX_PROMPT_CHARS) : '';
+    if (!raw) return resolve({ ok: false, error: 'empty' });
+    if (sendingPrompt) return resolve({ ok: false, error: 'busy' });
+    sendingPrompt = true;
+    const rewrite = opts.rewrite ? (REWRITE_STYLES[opts.rewrite] ? opts.rewrite : 'polish') : null;
+    if (rewrite) { prefs.rewriteStyle = rewrite; saveJSON(PREFS_FILE, prefs); }
+    // The text goes through a temp file, never the command line
+    const file = path.join(os.tmpdir(), `buddy-prompt-${randomUUID()}.txt`);
+    fs.writeFileSync(file, rewrite ? rewritePrompt(raw, rewrite) : raw, 'utf8');
+    const args = ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'send-to-claude.ps1'),
+      '-TextFile', file];
+    if (rewrite) args.push('-ChatTitle', prefs.rewriteChat || DEFAULT_REWRITE_CHAT);
+    execFile('powershell', args, { timeout: 90000, windowsHide: true }, (err, stdout) => {
+      sendingPrompt = false;
+      fs.unlink(file, () => {});
+      const out = (stdout || '').trim();
+      if (!err && out === 'sent') return resolve({ ok: true });
+      resolve({ ok: false, error: err ? err.message : out || 'unknown' });
+    });
+  });
+}
+
+ipcMain.handle('pet-send-prompt', (_e, text, opts) => sendToClaude(text, opts || {}));
+
+function rewriteIo() {
+  return new Promise((resolve) => {
+    execFile('powershell', ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'rewrite-io.ps1')],
+      { timeout: 15000, windowsHide: true }, (err, stdout) => resolve(err ? 'error:' + err.message : (stdout || '').trim()));
+  });
+}
+
+// Hotkey: rewrite the selected text of the foreground app, or the clipboard text when nothing is selected
+async function rewriteSelection() {
+  if (sendingPrompt || !petWindow || petWindow.isDestroyed()) return;
+  if (!petWindow.isVisible()) setPetVisible(true);
+  petSend('toast', { text: 'Reading selection…', kind: '' });
+  const raw = await rewriteIo();
+  let cap = null;
+  try { cap = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')); } catch { /* error text */ }
+  if (!cap || !String(cap.text || '').trim()) return petSend('toast', { text: 'Select or copy some text first', kind: 'ask' });
+  petSend('toast', { text: 'Sending to Rewrite chat…', kind: '' });
+  const r = await sendToClaude(cap.text, { rewrite: prefs.rewriteStyle || 'polish' });
+  if (r.ok) petSend('toast', { text: cap.selected ? 'Sent selection to Rewrite' : 'Sent clipboard to Rewrite', kind: 'done' });
+  else petSend('toast', { text: r.error === 'no_chat' ? `No chat titled "${prefs.rewriteChat || DEFAULT_REWRITE_CHAT}" in the sidebar` : r.error === 'no_desktop_window' ? 'Claude app is not open' : `Rewrite failed: ${r.error}`, kind: 'ask' });
 }
 
 ipcMain.on('pet-drag-start', () => {
@@ -482,6 +576,11 @@ expressApp.post('/api/window/toggle-pin', (_req, res) => {
 expressApp.post('/api/pet/toggle', (_req, res) => {
   togglePet();
   res.json({ visible: !!petWindow && !petWindow.isDestroyed() && petWindow.isVisible() });
+});
+
+expressApp.post('/api/pet/prompt', (_req, res) => {
+  openPrompt();
+  res.json({ ok: true });
 });
 
 expressApp.post('/api/window/minimize', (_req, res) => {

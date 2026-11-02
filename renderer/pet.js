@@ -3,6 +3,8 @@ const API_BASE = window.location.origin;
 const WS_URL = `ws://${window.location.host}/ws`;
 const BUBBLE_MS = 4000;
 const DRAG_THRESHOLD = 4;
+const DOUBLE_CLICK_MS = 280;
+let clickTimer = null;
 
 const wrap = document.getElementById('pet-wrap');
 const bubble = document.getElementById('bubble');
@@ -207,5 +209,122 @@ wrap.addEventListener('pointerup', () => {
   window.dashboardAPI.petDragEnd(wasDrag);
   if (wasDrag) return;
   markReviewed();
-  window.dashboardAPI.toggleDashboard();
+  // A single click toggles the dashboard after a short wait; a second click opens the prompt box
+  if (clickTimer) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    openPromptBox();
+  } else {
+    clickTimer = setTimeout(() => {
+      clickTimer = null;
+      window.dashboardAPI.toggleDashboard();
+    }, DOUBLE_CLICK_MS);
+  }
 });
+
+// ── Prompt box: send text to the Claude desktop app ──────────────────
+const promptBox = document.getElementById('prompt');
+const promptInput = document.getElementById('prompt-input');
+const promptHint = document.getElementById('prompt-hint');
+let sendingPrompt = false;
+
+function openPromptBox() {
+  promptBox.classList.add('show');
+  window.dashboardAPI.petFocus();
+  promptInput.focus();
+}
+
+function closePromptBox() {
+  promptBox.classList.remove('show');
+  promptInput.blur();
+}
+
+// Rewrite tab: the draft goes to the "Rewrite" chat in the Claude app with an instruction
+const STYLES = [['fix', 'Fix'], ['polish', 'Polish'], ['shorter', 'Shorter'], ['friendly', 'Friendly'], ['formal', 'Formal']];
+const HINTS = {
+  send: 'Enter send · Shift+Enter line · Tab switch',
+  rewrite: 'Enter rewrite · Tab switch · Esc close',
+};
+let rewriteStyle = localStorage.getItem('rewriteStyle') || 'polish';
+let promptMode = localStorage.getItem('promptMode') === 'rewrite' ? 'rewrite' : 'send';
+
+function markChips() {
+  for (const b of promptBox.querySelectorAll('.chips button')) b.classList.toggle('on', b.dataset.style === rewriteStyle);
+}
+
+function setPromptMode(mode) {
+  promptMode = mode;
+  localStorage.setItem('promptMode', mode);
+  promptBox.dataset.mode = mode;
+  for (const b of promptBox.querySelectorAll('.tabs button[data-mode]')) b.classList.toggle('on', b.dataset.mode === mode);
+  promptInput.placeholder = mode === 'rewrite' ? 'Paste a draft to improve' : 'Message to Claude';
+  promptHint.textContent = HINTS[mode];
+  promptInput.focus();
+}
+
+for (const [key, label] of STYLES) {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.dataset.style = key;
+  b.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the textarea
+  b.addEventListener('click', () => {
+    rewriteStyle = key;
+    localStorage.setItem('rewriteStyle', key);
+    markChips();
+    promptInput.focus();
+  });
+  document.getElementById('prompt-chips').append(b);
+}
+for (const b of promptBox.querySelectorAll('.tabs button[data-mode]')) b.addEventListener('click', () => setPromptMode(b.dataset.mode));
+setPromptMode(promptMode);
+markChips();
+
+async function submitPrompt() {
+  const text = promptInput.value.trim();
+  if (!text || sendingPrompt) return;
+  sendingPrompt = true;
+  closePromptBox();
+  const rewrite = promptMode === 'rewrite';
+  showBubble(rewrite ? 'Sending to Rewrite chat…' : 'Sending to Claude…', null);
+  const r = await window.dashboardAPI.sendPrompt(text, rewrite ? { rewrite: rewriteStyle } : {}).catch(err => ({ ok: false, error: err.message }));
+  sendingPrompt = false;
+  if (r.ok) {
+    promptInput.value = '';
+    showBubble(rewrite ? 'Sent to Rewrite chat' : 'Sent to Claude', null, 'done');
+  } else {
+    // Keep the text so it can be retried
+    const why = r.error === 'no_desktop_window' ? 'Claude app is not open'
+      : r.error === 'no_chat' ? 'Rewrite chat not in the sidebar'
+      : `Send failed: ${r.error}`;
+    showBubble(why, null, 'ask');
+  }
+}
+
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    setPromptMode(promptMode === 'send' ? 'rewrite' : 'send');
+    return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    submitPrompt();
+  }
+});
+// Esc closes from anywhere in the window, not only while the textarea has focus
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && promptBox.classList.contains('show')) closePromptBox();
+});
+// Leaving the window closes an empty box; a draft stays open
+window.addEventListener('blur', () => {
+  if (promptBox.classList.contains('show') && !promptInput.value.trim() && !sendingPrompt) closePromptBox();
+});
+document.getElementById('prompt-close').addEventListener('click', closePromptBox);
+
+wrap.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  openPromptBox();
+});
+window.dashboardAPI.onOpenPrompt(openPromptBox);
+// Messages from main (the rewrite hotkey reports through the bubble)
+window.dashboardAPI.onToast(({ text, kind }) => showBubble(text, null, kind || ''));
