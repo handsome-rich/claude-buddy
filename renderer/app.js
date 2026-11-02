@@ -136,6 +136,7 @@ function createCard(session) {
     <div class="session-details">
       <div class="session-path" title="${escapeHtml(session.cwd || '')}">${escapeHtml(shortPath(session.cwd))}</div>
       ${session.currentTool ? `<div class="session-tool">${escapeHtml(session.currentTool)}</div>` : ''}
+      ${session.hostApp ? `<div class="session-host">${escapeHtml(session.hostApp)}</div>` : ''}
       <div class="session-time">${formatDuration(elapsed)}</div>
     </div>
   `;

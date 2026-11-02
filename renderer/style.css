@@ -348,6 +348,12 @@ html, body {
   flex-shrink: 0;
 }
 
+.session-host {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
 .session-time {
   font-size: 10px;
   color: var(--text-dim);

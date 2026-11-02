@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
 const path = require('path');
 const express = require('express');
+const { shell } = require('electron');
 const { WebSocketServer } = require('ws');
 const http = require('http');
 const fs = require('fs');
@@ -63,10 +64,30 @@ function readSessionTitle(id, file) {
   } catch { return c ? c.title : null; }
 }
 
+// App the session runs in, from the "entrypoint" Claude Code writes to the transcript
+const HOST_APPS = { cli: 'Terminal', 'claude-vscode': 'VS Code', 'claude-desktop': 'Claude app', 'sdk-cli': 'SDK', 'sdk-ts': 'SDK', 'sdk-py': 'SDK' };
+const hostCache = new Map(); // id -> host app name, once found
+function readHostApp(id, file) {
+  if (hostCache.has(id)) return hostCache.get(id);
+  if (!file) return null;
+  let fd = null;
+  try {
+    // It is in the first lines, so read only the head of a possibly large file
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(64 * 1024);
+    const n = fs.readSync(fd, buf, 0, buf.length, 0);
+    const m = buf.toString('utf-8', 0, n).match(/"entrypoint":"([^"]*)"/);
+    if (!m) return null;
+    const host = HOST_APPS[m[1]] || null;
+    hostCache.set(id, host);
+    return host;
+  } catch { return null; } finally { if (fd !== null) fs.closeSync(fd); }
+}
+
 function getSessionList() {
   return Array.from(sessions.entries()).map(([id, s]) => {
     const title = readSessionTitle(id, s.transcriptPath);
-    return { id, ...s, title, name: sessionNames[id] || title || sessionNames[s.cwd] || null };
+    return { id, ...s, title, hostApp: readHostApp(id, s.transcriptPath), name: sessionNames[id] || title || sessionNames[s.cwd] || null };
   });
 }
 
@@ -233,6 +254,27 @@ expressApp.post('/api/sessions/:id/name', (req, res) => {
   res.json({ ok: true });
 });
 
+// Claude desktop app keeps one JSON per Code session; its cliSessionId is the hook's session_id
+const DESKTOP_SESSIONS_DIR = path.join(process.env.APPDATA || '', 'Claude', 'claude-code-sessions');
+function findDesktopSessionId(cliId) {
+  const needle = `"cliSessionId":"${cliId}"`;
+  try {
+    for (const a of fs.readdirSync(DESKTOP_SESSIONS_DIR)) {
+      const dir1 = path.join(DESKTOP_SESSIONS_DIR, a);
+      if (!fs.statSync(dir1).isDirectory()) continue;
+      for (const b of fs.readdirSync(dir1)) {
+        const dir2 = path.join(dir1, b);
+        if (!fs.statSync(dir2).isDirectory()) continue;
+        for (const f of fs.readdirSync(dir2)) {
+          if (!/^local_[\w-]+\.json$/.test(f)) continue;
+          if (fs.readFileSync(path.join(dir2, f), 'utf-8').includes(needle)) return f.slice(0, -5);
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
 expressApp.post('/api/sessions/:id/focus', (req, res) => {
   const { id } = req.params;
   const session = sessions.get(id);
@@ -246,7 +288,13 @@ expressApp.post('/api/sessions/:id/focus', (req, res) => {
 
   runScript('focus-tab.ps1', ['-SessionId', id, '-TargetCwd', cwd, '-Title', title], (err, result) => {
     if (!err && result.startsWith('focused_tab')) return res.json({ ok: true, result });
-    // Not a Windows Terminal tab: try the VS Code window, then the Claude desktop app
+    // Not a Windows Terminal tab. A Claude desktop app session opens in its Code tab.
+    const localId = findDesktopSessionId(id);
+    if (localId) {
+      shell.openExternal(`claude://code/continue?session=${encodeURIComponent(localId)}`).catch(() => {});
+      return res.json({ ok: true, result: 'opened_desktop_session' });
+    }
+    // Otherwise try the VS Code window, then the Claude desktop window
     runScript('focus-desktop.ps1', ['-Title', title, '-TargetCwd', cwd], (err2, r2) => {
       const ok = !err2 && r2.startsWith('focused_');
       res.json({ ok, result: ok ? r2 : result });
