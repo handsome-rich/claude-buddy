@@ -1,10 +1,12 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const express = require('express');
 const { WebSocketServer } = require('ws');
+const os = require('os');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 // ── Data ──────────────────────────────────────────────────────────────
 const sessions = new Map();
@@ -71,6 +73,14 @@ expressApp.use((req, _res, next) => {
   next();
 });
 
+// One-line summary of a tool call for the pet's progress line, e.g. "Bash: npm test"
+function describeTool(tool, input) {
+  const inp = input && typeof input === 'object' ? input : {};
+  const main = inp.command || inp.file_path || inp.path || inp.url || inp.pattern || inp.query || '';
+  const summary = String(main).split('\n')[0].slice(0, 80);
+  return summary ? `${tool}: ${summary}` : tool;
+}
+
 // Hook event endpoints
 expressApp.post('/sessions/event', (req, res) => {
   const body = req.body || {};
@@ -82,14 +92,17 @@ expressApp.post('/sessions/event', (req, res) => {
 
   switch (event) {
     case 'SessionStart':
-      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null, activity: null });
       break;
     case 'UserPromptSubmit':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'running', currentTool: null, activity: 'Thinking…' });
       break;
-    case 'PreToolUse':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: body.tool_name || 'tool' });
+    case 'PreToolUse': {
+      // `activity` survives PostToolUse so the pet can show the last step while Claude thinks
+      const tool = body.tool_name || 'tool';
+      updateSession(sessionId, { ...base, state: 'running', currentTool: tool, activity: describeTool(tool, body.tool_input) });
       break;
+    }
     case 'PostToolUse':
     case 'PostToolUseFailure':
       updateSession(sessionId, { ...base, state: 'running', currentTool: null });
@@ -102,14 +115,14 @@ expressApp.post('/sessions/event', (req, res) => {
       if (ntype === 'permission_prompt' || ntype === 'elicitation_dialog') {
         updateSession(sessionId, { ...base, state: 'waiting' });
       } else {
-        updateSession(sessionId, { ...base, state: 'idle' });
+        updateSession(sessionId, { ...base, state: 'idle', activity: null });
       }
       break;
     }
     case 'Stop': {
       // Only update if session already exists (don't create phantom sessions)
       if (!sessions.has(sessionId)) break;
-      updateSession(sessionId, { ...base, state: 'idle', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', currentTool: null, activity: null });
       // Gacha roll
       const session = sessions.get(sessionId);
       const duration = session ? (Date.now() - (session.startTime || Date.now())) : 0;
@@ -269,6 +282,231 @@ function createWindow() {
   });
 }
 
+// ── Floating pet window ───────────────────────────────────────────────
+// GPU compositing draws a stray white title-bar strip on the transparent pet window (Windows).
+// Must run before the app is ready, so it stays at module level.
+app.disableHardwareAcceleration();
+
+const PET_W = 220;
+const PET_H = 190;
+const PET_MAX_H = 460;
+const DEFAULT_HOTKEY = 'CommandOrControl+Alt+B';
+const DEFAULT_PROMPT_HOTKEY = 'CommandOrControl+Alt+P';
+const DEFAULT_REWRITE_HOTKEY = 'CommandOrControl+Alt+R';
+const MAX_PROMPT_CHARS = 8000;
+let petWindow = null;
+let petDrag = null;
+
+// Keep a saved position only if it lands on a connected display
+function resolvePetPosition() {
+  const saved = prefs.petPos;
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    const cx = saved.x + PET_W / 2;
+    const cy = saved.y + PET_H / 2;
+    const visible = screen.getAllDisplays().some(({ workArea: a }) =>
+      cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height);
+    if (visible) return { x: Math.round(saved.x), y: Math.round(saved.y) };
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  // Default: left of the dashboard's default spot
+  return {
+    x: workArea.x + workArea.width - 340 - 16 - PET_W - 8,
+    y: workArea.y + workArea.height - PET_H - 16,
+  };
+}
+
+function createPetWindow() {
+  const { x, y } = resolvePetPosition();
+  petWindow = new BrowserWindow({
+    width: PET_W,
+    height: PET_H,
+    x,
+    y,
+    title: '',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  petWindow.setAlwaysOnTop(true, 'screen-saver');
+  // Windows ignores relative levels, so re-raise the pet whenever the dashboard is raised
+  const raisePet = () => {
+    if (petWindow && !petWindow.isDestroyed() && petWindow.isVisible()) petWindow.moveTop();
+  };
+  for (const ev of ['focus', 'blur', 'show']) mainWindow.on(ev, raisePet);
+  petWindow.loadURL(`http://127.0.0.1:${PORT}/pet.html`);
+  petWindow.once('ready-to-show', () => {
+    if (prefs.petVisible !== false) petWindow.showInactive();
+  });
+}
+
+function setPetVisible(visible) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (visible) petWindow.showInactive();
+  else petWindow.hide();
+  prefs.petVisible = visible;
+  saveJSON(PREFS_FILE, prefs);
+}
+
+function togglePet() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  setPetVisible(!petWindow.isVisible());
+}
+
+function registerShortcut(accel, handler) {
+  try {
+    if (!globalShortcut.register(accel, handler)) {
+      console.error(`Hotkey ${accel} could not be registered (already in use?)`);
+    }
+  } catch (err) {
+    console.error(`Hotkey ${accel} is invalid:`, err.message);
+  }
+}
+
+// Global hotkeys. Change them with "hotkey", "promptHotkey" and "rewriteHotkey" in prefs.json.
+function registerHotkey() {
+  registerShortcut(prefs.hotkey || DEFAULT_HOTKEY, togglePet);
+  registerShortcut(prefs.promptHotkey || DEFAULT_PROMPT_HOTKEY, openPrompt);
+  registerShortcut(prefs.rewriteHotkey || DEFAULT_REWRITE_HOTKEY, rewriteSelection);
+}
+
+// Show the pet if hidden, take keyboard focus, and ask the page to open its prompt box
+function openPrompt() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (!petWindow.isVisible()) setPetVisible(true);
+  petWindow.focus();
+  petWindow.webContents.send('open-prompt');
+}
+
+ipcMain.on('pet-focus', () => {
+  if (petWindow && !petWindow.isDestroyed()) petWindow.focus();
+});
+
+// ── Send to the Claude desktop app (UI Automation, see send-to-claude.ps1) ──
+// Plain prompts go to a new chat. Rewrite requests go to one chat, found by title in the sidebar (default "Rewrite").
+const DEFAULT_REWRITE_CHAT = 'Rewrite';
+const REWRITE_STYLES = {
+  fix: 'Fix grammar, spelling and punctuation only. Keep the wording, tone and structure.',
+  polish: 'Make it clearer and more natural. Keep the meaning, the voice and roughly the same length.',
+  shorter: 'Make it shorter and tighter. Keep every key point.',
+  friendly: 'Make the tone warmer and friendlier. Keep the meaning.',
+  formal: 'Make the tone formal and professional. Keep the meaning.',
+};
+
+function rewritePrompt(draft, style) {
+  const how = REWRITE_STYLES[style] || REWRITE_STYLES.polish;
+  return `Rewrite and improve the draft below. ${how} Keep the original language and formatting. ` +
+    'Reply with only the improved text, with no preface or explanation.\n\nDraft:\n' + draft;
+}
+
+function petSend(channel, payload) {
+  if (petWindow && !petWindow.isDestroyed()) petWindow.webContents.send(channel, payload);
+}
+
+let sendingPrompt = false;
+
+// opts.rewrite = style key sends the text as a rewrite request to the Rewrite chat
+function sendToClaude(text, opts = {}) {
+  return new Promise((resolve) => {
+    const raw = typeof text === 'string' ? text.trim().slice(0, MAX_PROMPT_CHARS) : '';
+    if (!raw) return resolve({ ok: false, error: 'empty' });
+    if (sendingPrompt) return resolve({ ok: false, error: 'busy' });
+    sendingPrompt = true;
+    const rewrite = opts.rewrite ? (REWRITE_STYLES[opts.rewrite] ? opts.rewrite : 'polish') : null;
+    if (rewrite) { prefs.rewriteStyle = rewrite; saveJSON(PREFS_FILE, prefs); }
+    // The text goes through a temp file, never the command line
+    const file = path.join(os.tmpdir(), `buddy-prompt-${randomUUID()}.txt`);
+    fs.writeFileSync(file, rewrite ? rewritePrompt(raw, rewrite) : raw, 'utf8');
+    const args = ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'send-to-claude.ps1'),
+      '-TextFile', file];
+    if (rewrite) args.push('-ChatTitle', prefs.rewriteChat || DEFAULT_REWRITE_CHAT);
+    execFile('powershell', args, { timeout: 90000, windowsHide: true }, (err, stdout) => {
+      sendingPrompt = false;
+      fs.unlink(file, () => {});
+      const out = (stdout || '').trim();
+      if (!err && out === 'sent') return resolve({ ok: true });
+      resolve({ ok: false, error: err ? err.message : out || 'unknown' });
+    });
+  });
+}
+
+ipcMain.handle('pet-send-prompt', (_e, text, opts) => sendToClaude(text, opts || {}));
+
+function rewriteIo() {
+  return new Promise((resolve) => {
+    execFile('powershell', ['-STA', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'rewrite-io.ps1')],
+      { timeout: 15000, windowsHide: true }, (err, stdout) => resolve(err ? 'error:' + err.message : (stdout || '').trim()));
+  });
+}
+
+// Hotkey: rewrite the selected text of the foreground app, or the clipboard text when nothing is selected
+async function rewriteSelection() {
+  if (sendingPrompt || !petWindow || petWindow.isDestroyed()) return;
+  if (!petWindow.isVisible()) setPetVisible(true);
+  petSend('toast', { text: 'Reading selection…', kind: '' });
+  const raw = await rewriteIo();
+  let cap = null;
+  try { cap = JSON.parse(Buffer.from(raw, 'base64').toString('utf8')); } catch { /* error text */ }
+  if (!cap || !String(cap.text || '').trim()) return petSend('toast', { text: 'Select or copy some text first', kind: 'ask' });
+  petSend('toast', { text: 'Sending to Rewrite chat…', kind: '' });
+  const r = await sendToClaude(cap.text, { rewrite: prefs.rewriteStyle || 'polish' });
+  if (r.ok) petSend('toast', { text: cap.selected ? 'Sent selection to Rewrite' : 'Sent clipboard to Rewrite', kind: 'done' });
+  else petSend('toast', { text: r.error === 'no_chat' ? `No chat titled "${prefs.rewriteChat || DEFAULT_REWRITE_CHAT}" in the sidebar` : r.error === 'no_desktop_window' ? 'Claude app is not open' : `Rewrite failed: ${r.error}`, kind: 'ask' });
+}
+
+ipcMain.on('pet-drag-start', () => {
+  if (!petWindow) return;
+  const [wx, wy] = petWindow.getPosition();
+  const cursor = screen.getCursorScreenPoint();
+  petDrag = { wx, wy, cx: cursor.x, cy: cursor.y };
+});
+
+ipcMain.on('pet-drag-move', () => {
+  if (!petWindow || !petDrag) return;
+  const cursor = screen.getCursorScreenPoint();
+  petWindow.setPosition(
+    Math.round(petDrag.wx + cursor.x - petDrag.cx),
+    Math.round(petDrag.wy + cursor.y - petDrag.cy),
+  );
+});
+
+ipcMain.on('pet-drag-end', (_e, moved) => {
+  petDrag = null;
+  if (!petWindow || !moved) return;
+  // Save the position as if the window had its base height (it grows upward)
+  const b = petWindow.getBounds();
+  prefs.petPos = { x: b.x, y: b.y + b.height - PET_H };
+  saveJSON(PREFS_FILE, prefs);
+});
+
+// The pet grows upward (bottom edge fixed) when the progress list expands
+ipcMain.on('pet-fit', (_e, contentH) => {
+  if (!petWindow || petWindow.isDestroyed() || petDrag) return;
+  const height = Math.max(PET_H, Math.min(PET_MAX_H, Math.round(Number(contentH) || PET_H)));
+  const b = petWindow.getBounds();
+  if (b.height === height) return;
+  const bottom = b.y + b.height;
+  const area = screen.getDisplayMatching(b).workArea;
+  petWindow.setBounds({ x: b.x, y: Math.max(area.y, bottom - height), width: b.width, height });
+});
+
+ipcMain.on('toggle-dashboard', () => {
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 function createTrayIcon() {
   // Programmatically draw a 32x32 icon (purple diamond)
   const size = 32;
@@ -295,6 +533,7 @@ function createTray() {
   tray.setToolTip('Claude Dashboard');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Dashboard', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: 'Show/Hide Pet', click: togglePet },
     { type: 'separator' },
     { label: 'Quit', click: () => { mainWindow.destroy(); app.quit(); } },
   ]));
@@ -313,10 +552,13 @@ app.whenReady().then(() => {
     console.log(`Dashboard server on http://127.0.0.1:${PORT}`);
   });
   createWindow();
+  createPetWindow();
   createTray();
+  registerHotkey();
 });
 
 app.on('window-all-closed', (e) => e.preventDefault());
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 // ── Window control via HTTP ────────────────────────────────────────────
 expressApp.post('/api/window/toggle-pin', (_req, res) => {
@@ -329,6 +571,16 @@ expressApp.post('/api/window/toggle-pin', (_req, res) => {
     mainWindow.setAlwaysOnTop(false);
   }
   res.json({ pinned });
+});
+
+expressApp.post('/api/pet/toggle', (_req, res) => {
+  togglePet();
+  res.json({ visible: !!petWindow && !petWindow.isDestroyed() && petWindow.isVisible() });
+});
+
+expressApp.post('/api/pet/prompt', (_req, res) => {
+  openPrompt();
+  res.json({ ok: true });
 });
 
 expressApp.post('/api/window/minimize', (_req, res) => {
