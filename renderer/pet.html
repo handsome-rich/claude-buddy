@@ -13,6 +13,16 @@
     #pet-wrap { position: relative; width: 88px; height: 63px; cursor: grab; }
     #pet-wrap.dragging { cursor: grabbing; }
     #capybara { width: 88px; height: 63px; image-rendering: pixelated; pointer-events: none; }
+    #custom-icon { display: none; width: 63px; height: 63px; object-fit: contain; pointer-events: none; }
+    #pet-wrap.custom { width: 63px; }
+    #pet-wrap.custom #capybara { display: none; }
+    #pet-wrap.custom #custom-icon { display: block; }
+    #pet-wrap.custom[data-state="idle"] #custom-icon { animation: icon-idle 2.4s ease-in-out infinite; }
+    #pet-wrap.custom[data-state="running"] #custom-icon { animation: icon-run .5s ease-in-out infinite; }
+    #pet-wrap.custom[data-state="waiting"] #custom-icon { animation: icon-wait .6s ease-in-out infinite; }
+    @keyframes icon-idle { 50% { transform: translateY(-3px); } }
+    @keyframes icon-run { 50% { transform: translateY(-10px); } }
+    @keyframes icon-wait { 25% { transform: rotate(-6deg); } 75% { transform: rotate(6deg); } }
     #badge { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; display: none; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
     #badge.wait { display: flex; background: #e5484d; }
     #badge.run { display: flex; background: #f5a524; animation: pulse 1.2s ease-in-out infinite; }
@@ -38,6 +48,7 @@
     <div id="progress"></div>
     <div id="pet-wrap">
       <canvas id="capybara" width="42" height="30"></canvas>
+      <img id="custom-icon" alt="">
       <div id="badge"></div>
     </div>
   </div>

@@ -592,6 +592,41 @@ collectionOverlay.addEventListener('click', (e) => {
   if (e.target === collectionOverlay) collectionOverlay.classList.remove('visible');
 });
 
+// ── Custom pet image ──────────────────────────────────────────────────
+const iconFile = document.getElementById('icon-file');
+document.getElementById('icon-upload').addEventListener('click', () => iconFile.click());
+iconFile.addEventListener('change', () => {
+  const file = iconFile.files[0];
+  iconFile.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return alert('Image must be 5 MB or less');
+  fetch(`${API_BASE}/api/custom-icon`, { method: 'POST', headers: { 'Content-Type': file.type }, body: file })
+    .then(r => { if (!r.ok) alert('Upload failed: use PNG, JPG, GIF or WebP'); });
+});
+document.getElementById('icon-reset').addEventListener('click', () => {
+  fetch(`${API_BASE}/api/custom-icon`, { method: 'DELETE' });
+});
+
+// ── Pet transparency ──────────────────────────────────────────────────
+const opacitySlider = document.getElementById('pet-opacity');
+const opacityValue = document.getElementById('pet-opacity-val');
+let opacityTimer = null;
+function showOpacity(v) {
+  opacitySlider.value = Math.round(v * 100);
+  opacityValue.textContent = `${Math.round(v * 100)}%`;
+}
+fetch(`${API_BASE}/api/pet/opacity`).then(r => r.json()).then(d => showOpacity(d.value)).catch(() => {});
+opacitySlider.addEventListener('input', () => {
+  opacityValue.textContent = `${opacitySlider.value}%`;
+  clearTimeout(opacityTimer); // short debounce; the pet follows through the server broadcast
+  opacityTimer = setTimeout(() => {
+    fetch(`${API_BASE}/api/pet/opacity`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: Number(opacitySlider.value) / 100 }),
+    }).catch(() => {});
+  }, 60);
+});
+
 function renderCollection() {
   const allPets = window.getAllPets ? window.getAllPets() : {};
   const petList = window.getPetList ? window.getPetList() : [];

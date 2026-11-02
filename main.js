@@ -177,6 +177,46 @@ expressApp.post('/sessions/event', (req, res) => {
 expressApp.get('/api/sessions', (_req, res) => res.json(getSessionList()));
 expressApp.get('/api/gacha', (_req, res) => res.json(gachaData));
 
+// ── Custom pet image (replaces the pixel pet in the floating window) ──
+const CUSTOM_ICON_FILE = path.join(CONFIG_DIR, 'custom-icon');
+const ICON_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+expressApp.get('/api/custom-icon', (_req, res) => {
+  res.json({ url: fs.existsSync(CUSTOM_ICON_FILE) ? `/custom-icon?v=${prefs.customIconV || 0}` : null });
+});
+expressApp.get('/custom-icon', (_req, res) => {
+  if (!fs.existsSync(CUSTOM_ICON_FILE)) return res.sendStatus(404);
+  res.type(prefs.customIconType || 'image/png').sendFile(CUSTOM_ICON_FILE);
+});
+// Image content types force a CORS preflight, so a web page cannot upload here
+expressApp.post('/api/custom-icon', express.raw({ type: [...ICON_TYPES], limit: '5mb' }), (req, res) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: 'PNG, JPG, GIF or WebP up to 5 MB' });
+  fs.writeFileSync(CUSTOM_ICON_FILE, req.body);
+  prefs.customIconType = req.headers['content-type'].split(';')[0];
+  prefs.customIconV = Date.now();
+  saveJSON(PREFS_FILE, prefs);
+  broadcast({ type: 'custom_icon' });
+  refreshAppIcon();
+  res.json({ ok: true });
+});
+expressApp.delete('/api/custom-icon', (_req, res) => {
+  fs.rmSync(CUSTOM_ICON_FILE, { force: true });
+  broadcast({ type: 'custom_icon' });
+  refreshAppIcon();
+  res.json({ ok: true });
+});
+
+// Pet transparency (the pet only, not its bubbles), set from the pet collection
+const petOpacity = () => (Number.isFinite(prefs.petOpacity) ? prefs.petOpacity : 1);
+expressApp.get('/api/pet/opacity', (_req, res) => res.json({ value: petOpacity() }));
+expressApp.post('/api/pet/opacity', (req, res) => {
+  const v = Number(req.body && req.body.value);
+  if (!Number.isFinite(v)) return res.status(400).json({ error: 'value must be a number' });
+  prefs.petOpacity = Math.min(1, Math.max(0.3, Math.round(v * 100) / 100));
+  saveJSON(PREFS_FILE, prefs);
+  broadcast({ type: 'pet_opacity', value: prefs.petOpacity });
+  res.json({ value: prefs.petOpacity });
+});
+
 // Test endpoint: force a gacha drop (for debugging)
 expressApp.post('/api/gacha/test', (req, res) => {
   const rarity = req.body.rarity || 'R';
@@ -433,8 +473,23 @@ function createTrayIcon() {
   return nativeImage.createFromBuffer(canvas, { width: size, height: size });
 }
 
+// Custom image (PNG/JPG only; nativeImage can't decode GIF/WebP) wins over the diamond
+function currentAppIcon() {
+  if (fs.existsSync(CUSTOM_ICON_FILE)) {
+    const img = nativeImage.createFromPath(CUSTOM_ICON_FILE);
+    if (!img.isEmpty()) return img.resize({ width: 32, height: 32 });
+  }
+  return createTrayIcon();
+}
+
+function refreshAppIcon() {
+  const icon = currentAppIcon();
+  if (tray) tray.setImage(icon);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setIcon(icon);
+}
+
 function createTray() {
-  const icon = createTrayIcon();
+  const icon = currentAppIcon();
   tray = new Tray(icon);
   tray.setToolTip('Claude Dashboard');
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -460,6 +515,7 @@ app.whenReady().then(() => {
   createWindow();
   createPetWindow();
   createTray();
+  refreshAppIcon();
   registerHotkey();
 });
 

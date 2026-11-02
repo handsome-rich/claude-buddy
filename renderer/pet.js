@@ -63,6 +63,7 @@ function applyStatus() {
     badge.innerHTML = sessions.length ? ICON_CHECK : '';
     window.setPetState('idle');
   }
+  wrap.dataset.state = any('waiting') ? 'waiting' : any('running') ? 'running' : 'idle';
   renderProgress();
 }
 
@@ -136,6 +137,17 @@ function onSessions(list) {
   applyStatus();
 }
 
+// ── Custom image and transparency (set from the dashboard's pet collection) ──
+function loadCustomIcon() {
+  fetch(`${API_BASE}/api/custom-icon`).then(r => r.json()).then(d => {
+    if (d.url) document.getElementById('custom-icon').src = d.url;
+    wrap.classList.toggle('custom', !!d.url);
+  }).catch(() => {});
+}
+function loadOpacity() {
+  fetch(`${API_BASE}/api/pet/opacity`).then(r => r.json()).then(d => { wrap.style.opacity = d.value; }).catch(() => {});
+}
+
 // ── WebSocket ────────────────────────────────────────────────────────
 function loadUnlocks() {
   fetch(`${API_BASE}/api/gacha`).then(r => r.json()).then(d => {
@@ -149,6 +161,8 @@ function connect() {
   const ws = new WebSocket(WS_URL);
   ws.onopen = () => {
     loadUnlocks();
+    loadCustomIcon();
+    loadOpacity();
     fetch(`${API_BASE}/api/sessions`).then(r => r.json()).then(list => {
       prevStates = null; // reseed silently after a reconnect
       onSessions(list);
@@ -158,6 +172,8 @@ function connect() {
     const msg = JSON.parse(e.data);
     if (msg.type === 'sessions') onSessions(msg.sessions);
     else if (msg.type === 'gacha_drop') loadUnlocks();
+    else if (msg.type === 'custom_icon') loadCustomIcon();
+    else if (msg.type === 'pet_opacity') wrap.style.opacity = msg.value;
   };
   ws.onclose = () => setTimeout(connect, 2000);
   ws.onerror = () => ws.close();
