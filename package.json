@@ -32,7 +32,7 @@
       "renderer/**/*",
       "node_modules/**/*"
     ],
-    "asar": true
+    "asar": false
   },
   "dependencies": {
     "express": "^4.22.1",
