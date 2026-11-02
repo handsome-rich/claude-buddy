@@ -294,6 +294,10 @@ btnPin.addEventListener('click', async () => {
   btnPin.title = isPinned ? 'Unpin (disable always on top)' : 'Pin (enable always on top)';
 });
 
+document.getElementById('btn-pet').addEventListener('click', () => {
+  fetch(`${API_BASE}/api/pet/toggle`, { method: 'POST' });
+});
+
 document.getElementById('btn-minimize').addEventListener('click', () => {
   fetch(`${API_BASE}/api/window/minimize`, { method: 'POST' });
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
 const express = require('express');
 const { WebSocketServer } = require('ws');
@@ -71,6 +71,14 @@ expressApp.use((req, _res, next) => {
   next();
 });
 
+// One-line summary of a tool call for the pet's progress line, e.g. "Bash: npm test"
+function describeTool(tool, input) {
+  const inp = input && typeof input === 'object' ? input : {};
+  const main = inp.command || inp.file_path || inp.path || inp.url || inp.pattern || inp.query || '';
+  const summary = String(main).split('\n')[0].slice(0, 80);
+  return summary ? `${tool}: ${summary}` : tool;
+}
+
 // Hook event endpoints
 expressApp.post('/sessions/event', (req, res) => {
   const body = req.body || {};
@@ -82,14 +90,17 @@ expressApp.post('/sessions/event', (req, res) => {
 
   switch (event) {
     case 'SessionStart':
-      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null, activity: null });
       break;
     case 'UserPromptSubmit':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'running', currentTool: null, activity: 'Thinking…' });
       break;
-    case 'PreToolUse':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: body.tool_name || 'tool' });
+    case 'PreToolUse': {
+      // `activity` survives PostToolUse so the pet can show the last step while Claude thinks
+      const tool = body.tool_name || 'tool';
+      updateSession(sessionId, { ...base, state: 'running', currentTool: tool, activity: describeTool(tool, body.tool_input) });
       break;
+    }
     case 'PostToolUse':
     case 'PostToolUseFailure':
       updateSession(sessionId, { ...base, state: 'running', currentTool: null });
@@ -102,14 +113,14 @@ expressApp.post('/sessions/event', (req, res) => {
       if (ntype === 'permission_prompt' || ntype === 'elicitation_dialog') {
         updateSession(sessionId, { ...base, state: 'waiting' });
       } else {
-        updateSession(sessionId, { ...base, state: 'idle' });
+        updateSession(sessionId, { ...base, state: 'idle', activity: null });
       }
       break;
     }
     case 'Stop': {
       // Only update if session already exists (don't create phantom sessions)
       if (!sessions.has(sessionId)) break;
-      updateSession(sessionId, { ...base, state: 'idle', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', currentTool: null, activity: null });
       // Gacha roll
       const session = sessions.get(sessionId);
       const duration = session ? (Date.now() - (session.startTime || Date.now())) : 0;
@@ -269,6 +280,139 @@ function createWindow() {
   });
 }
 
+// ── Floating pet window ───────────────────────────────────────────────
+// GPU compositing draws a stray white title-bar strip on the transparent pet window (Windows).
+// Must run before the app is ready, so it stays at module level.
+app.disableHardwareAcceleration();
+
+const PET_W = 220;
+const PET_H = 190;
+const PET_MAX_H = 460;
+const DEFAULT_HOTKEY = 'CommandOrControl+Alt+B';
+let petWindow = null;
+let petDrag = null;
+
+// Keep a saved position only if it lands on a connected display
+function resolvePetPosition() {
+  const saved = prefs.petPos;
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    const cx = saved.x + PET_W / 2;
+    const cy = saved.y + PET_H / 2;
+    const visible = screen.getAllDisplays().some(({ workArea: a }) =>
+      cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height);
+    if (visible) return { x: Math.round(saved.x), y: Math.round(saved.y) };
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  // Default: left of the dashboard's default spot
+  return {
+    x: workArea.x + workArea.width - 340 - 16 - PET_W - 8,
+    y: workArea.y + workArea.height - PET_H - 16,
+  };
+}
+
+function createPetWindow() {
+  const { x, y } = resolvePetPosition();
+  petWindow = new BrowserWindow({
+    width: PET_W,
+    height: PET_H,
+    x,
+    y,
+    title: '',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  petWindow.setAlwaysOnTop(true, 'screen-saver');
+  // Windows ignores relative levels, so re-raise the pet whenever the dashboard is raised
+  const raisePet = () => {
+    if (petWindow && !petWindow.isDestroyed() && petWindow.isVisible()) petWindow.moveTop();
+  };
+  for (const ev of ['focus', 'blur', 'show']) mainWindow.on(ev, raisePet);
+  petWindow.loadURL(`http://127.0.0.1:${PORT}/pet.html`);
+  petWindow.once('ready-to-show', () => {
+    if (prefs.petVisible !== false) petWindow.showInactive();
+  });
+}
+
+function setPetVisible(visible) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (visible) petWindow.showInactive();
+  else petWindow.hide();
+  prefs.petVisible = visible;
+  saveJSON(PREFS_FILE, prefs);
+}
+
+function togglePet() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  setPetVisible(!petWindow.isVisible());
+}
+
+// Show/hide the pet from anywhere. Set "hotkey" in prefs.json to change it.
+function registerHotkey() {
+  const accel = prefs.hotkey || DEFAULT_HOTKEY;
+  try {
+    if (!globalShortcut.register(accel, togglePet)) {
+      console.error(`Hotkey ${accel} could not be registered (already in use?)`);
+    }
+  } catch (err) {
+    console.error(`Hotkey ${accel} is invalid:`, err.message);
+  }
+}
+
+ipcMain.on('pet-drag-start', () => {
+  if (!petWindow) return;
+  const [wx, wy] = petWindow.getPosition();
+  const cursor = screen.getCursorScreenPoint();
+  petDrag = { wx, wy, cx: cursor.x, cy: cursor.y };
+});
+
+ipcMain.on('pet-drag-move', () => {
+  if (!petWindow || !petDrag) return;
+  const cursor = screen.getCursorScreenPoint();
+  petWindow.setPosition(
+    Math.round(petDrag.wx + cursor.x - petDrag.cx),
+    Math.round(petDrag.wy + cursor.y - petDrag.cy),
+  );
+});
+
+ipcMain.on('pet-drag-end', (_e, moved) => {
+  petDrag = null;
+  if (!petWindow || !moved) return;
+  // Save the position as if the window had its base height (it grows upward)
+  const b = petWindow.getBounds();
+  prefs.petPos = { x: b.x, y: b.y + b.height - PET_H };
+  saveJSON(PREFS_FILE, prefs);
+});
+
+// The pet grows upward (bottom edge fixed) when the progress list expands
+ipcMain.on('pet-fit', (_e, contentH) => {
+  if (!petWindow || petWindow.isDestroyed() || petDrag) return;
+  const height = Math.max(PET_H, Math.min(PET_MAX_H, Math.round(Number(contentH) || PET_H)));
+  const b = petWindow.getBounds();
+  if (b.height === height) return;
+  const bottom = b.y + b.height;
+  const area = screen.getDisplayMatching(b).workArea;
+  petWindow.setBounds({ x: b.x, y: Math.max(area.y, bottom - height), width: b.width, height });
+});
+
+ipcMain.on('toggle-dashboard', () => {
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 function createTrayIcon() {
   // Programmatically draw a 32x32 icon (purple diamond)
   const size = 32;
@@ -295,6 +439,7 @@ function createTray() {
   tray.setToolTip('Claude Dashboard');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Dashboard', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: 'Show/Hide Pet', click: togglePet },
     { type: 'separator' },
     { label: 'Quit', click: () => { mainWindow.destroy(); app.quit(); } },
   ]));
@@ -313,10 +458,13 @@ app.whenReady().then(() => {
     console.log(`Dashboard server on http://127.0.0.1:${PORT}`);
   });
   createWindow();
+  createPetWindow();
   createTray();
+  registerHotkey();
 });
 
 app.on('window-all-closed', (e) => e.preventDefault());
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 // ── Window control via HTTP ────────────────────────────────────────────
 expressApp.post('/api/window/toggle-pin', (_req, res) => {
@@ -329,6 +477,11 @@ expressApp.post('/api/window/toggle-pin', (_req, res) => {
     mainWindow.setAlwaysOnTop(false);
   }
   res.json({ pinned });
+});
+
+expressApp.post('/api/pet/toggle', (_req, res) => {
+  togglePet();
+  res.json({ visible: !!petWindow && !petWindow.isDestroyed() && petWindow.isVisible() });
 });
 
 expressApp.post('/api/window/minimize', (_req, res) => {
