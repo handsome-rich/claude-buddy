@@ -1,4 +1,4 @@
-param([string]$SessionId, [string]$TargetCwd)
+param([string]$SessionId, [string]$TargetCwd, [string]$Title = '')
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
@@ -12,6 +12,35 @@ public class WinFocus {
     [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 }
 "@
+
+
+# Step 0 (preferred): Claude Code puts the session title in the terminal tab name,
+# so match the Windows Terminal tab by title. Falls through to PID matching below.
+if ($Title) {
+    $uiRoot = [System.Windows.Automation.AutomationElement]::RootElement
+    $hostCond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ClassNameProperty, 'CASCADIA_HOSTING_WINDOW_CLASS')
+    $tabCond = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::TabItem)
+    foreach ($win in $uiRoot.FindAll([System.Windows.Automation.TreeScope]::Children, $hostCond)) {
+        foreach ($t in $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tabCond)) {
+            if ($t.Current.Name.IndexOf($Title, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $h = [IntPtr]$win.Current.NativeWindowHandle
+                if ([WinFocus]::IsIconic($h)) { [void][WinFocus]::ShowWindow($h, 9) }
+                [WinFocus]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+                [void][WinFocus]::SetForegroundWindow($h)
+                [WinFocus]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+                try { $t.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select() } catch {}
+                Write-Output "focused_tab_by_title"
+                exit
+            }
+        }
+    }
+    # Title known but no tab has it: not a Windows Terminal session; don't guess by PID
+    Write-Output "no_title_match"
+    exit
+}
 
 # Step 1: Find the transcript file for this session
 $transcriptBase = Join-Path $env:USERPROFILE ".claude\projects"
