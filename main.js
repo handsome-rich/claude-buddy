@@ -296,6 +296,10 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Dashboard', click: () => { mainWindow.show(); mainWindow.focus(); } },
     { type: 'separator' },
+    {
+      label: 'Start with Windows', type: 'checkbox', checked: prefs.openAtLogin === true,
+      click: (item) => { prefs.openAtLogin = item.checked; saveJSON(PREFS_FILE, prefs); applyOpenAtLogin(); },
+    },
     { label: 'Quit', click: () => { mainWindow.destroy(); app.quit(); } },
   ]));
   tray.on('click', () => {
@@ -308,7 +312,30 @@ function createTray() {
   });
 }
 
+// Run at Windows login. Off by default; toggled from the tray menu.
+// Dev runs go through electron.exe, so the app folder has to be passed as an arg.
+// The portable build runs from a temp copy, so point at the original exe instead.
+// A fixed name keeps dev runs from sharing the "electron.app.Electron" entry with other apps.
+function applyOpenAtLogin() {
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  const args = app.isPackaged ? [] : [app.getAppPath()];
+  app.setLoginItemSettings({ openAtLogin: prefs.openAtLogin === true, path: exe, args, name: 'Claude Buddy' });
+}
+
+// One instance only: a second one cannot bind the port. Launching again shows the dashboard.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+} else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
+
 app.whenReady().then(() => {
+  // Refresh the registered path in case the exe moved. Never writes when the user hasn't opted in.
+  if (prefs.openAtLogin === true) applyOpenAtLogin();
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`Dashboard server on http://127.0.0.1:${PORT}`);
   });
