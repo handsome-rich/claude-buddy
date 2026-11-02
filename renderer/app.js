@@ -294,6 +294,10 @@ btnPin.addEventListener('click', async () => {
   btnPin.title = isPinned ? 'Unpin (disable always on top)' : 'Pin (enable always on top)';
 });
 
+document.getElementById('btn-pet').addEventListener('click', () => {
+  fetch(`${API_BASE}/api/pet/toggle`, { method: 'POST' });
+});
+
 document.getElementById('btn-minimize').addEventListener('click', () => {
   fetch(`${API_BASE}/api/window/minimize`, { method: 'POST' });
 });
@@ -586,6 +590,88 @@ document.getElementById('collection-close').addEventListener('click', () => {
 
 collectionOverlay.addEventListener('click', (e) => {
   if (e.target === collectionOverlay) collectionOverlay.classList.remove('visible');
+});
+
+// ── Custom pet image ──────────────────────────────────────────────────
+const iconFile = document.getElementById('icon-file');
+document.getElementById('icon-upload').addEventListener('click', () => iconFile.click());
+iconFile.addEventListener('change', () => {
+  const file = iconFile.files[0];
+  iconFile.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return alert('Image must be 5 MB or less');
+  fetch(`${API_BASE}/api/custom-icon`, { method: 'POST', headers: { 'Content-Type': file.type }, body: file })
+    .then(r => { if (!r.ok) alert('Upload failed: use PNG, JPG, GIF or WebP'); });
+});
+document.getElementById('icon-reset').addEventListener('click', () => {
+  fetch(`${API_BASE}/api/custom-icon`, { method: 'DELETE' });
+});
+
+// ── Codex spritesheet pets ────────────────────────────────────────────
+const spriteFile = document.getElementById('sprite-file');
+const spriteStatus = document.getElementById('sprite-status');
+const spriteList = document.getElementById('sprite-list');
+
+function renderSpriteList() {
+  fetch(`${API_BASE}/api/sprite-pets`).then(r => r.json()).then(d => {
+    spriteList.innerHTML = '';
+    spriteList.style.display = d.pets.length ? '' : 'none';
+    for (const p of d.pets) {
+      const b = document.createElement('button');
+      b.className = 'custom-icon-btn' + (p.id === d.active ? ' active' : '');
+      b.textContent = p.name;
+      b.title = 'Use this pet';
+      b.addEventListener('click', () => fetch(`${API_BASE}/api/sprite-pets/active`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id }) }).then(renderSpriteList));
+      const x = document.createElement('button');
+      x.className = 'custom-icon-btn';
+      x.textContent = '×';
+      x.title = 'Delete';
+      x.addEventListener('click', () => fetch(`${API_BASE}/api/sprite-pets/${p.id}`, { method: 'DELETE' }).then(renderSpriteList));
+      spriteList.append(b, x);
+    }
+  }).catch(() => {});
+}
+renderSpriteList();
+
+document.getElementById('sprite-upload').addEventListener('click', () => spriteFile.click());
+document.getElementById('sprite-reset').addEventListener('click', () => {
+  fetch(`${API_BASE}/api/sprite-pets/active`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: null }) }).then(renderSpriteList);
+});
+spriteFile.addEventListener('change', async () => {
+  const file = spriteFile.files[0];
+  spriteFile.value = '';
+  if (!file) return;
+  if (file.size > 12 * 1024 * 1024) { spriteStatus.textContent = 'Sheet must be 12 MB or less'; return; }
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) { spriteStatus.textContent = 'Could not read that image'; return; }
+  spriteStatus.textContent = 'Claude is reading the sheet…';
+  const r = await fetch(`${API_BASE}/api/sprite-pets`, {
+    method: 'POST',
+    headers: { 'X-Buddy-Pet': '1', 'Content-Type': file.type, 'X-Sheet-W': bmp.width, 'X-Sheet-H': bmp.height, 'X-Sheet-Name': encodeURIComponent(file.name) },
+    body: file,
+  }).then(res => res.json()).catch(() => ({}));
+  spriteStatus.textContent = r.ok ? (r.generatedBy === 'claude' ? 'Done. Layout read by Claude.' : 'Done. Claude failed, used the Codex layout.') : 'Import failed: PNG or WebP only';
+  renderSpriteList();
+});
+
+// ── Pet transparency ──────────────────────────────────────────────────
+const opacitySlider = document.getElementById('pet-opacity');
+const opacityValue = document.getElementById('pet-opacity-val');
+let opacityTimer = null;
+function showOpacity(v) {
+  opacitySlider.value = Math.round(v * 100);
+  opacityValue.textContent = `${Math.round(v * 100)}%`;
+}
+fetch(`${API_BASE}/api/pet/opacity`).then(r => r.json()).then(d => showOpacity(d.value)).catch(() => {});
+opacitySlider.addEventListener('input', () => {
+  opacityValue.textContent = `${opacitySlider.value}%`;
+  clearTimeout(opacityTimer); // short debounce; the pet follows through the server broadcast
+  opacityTimer = setTimeout(() => {
+    fetch(`${API_BASE}/api/pet/opacity`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: Number(opacitySlider.value) / 100 }),
+    }).catch(() => {});
+  }, 60);
 });
 
 function renderCollection() {

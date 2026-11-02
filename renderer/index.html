@@ -22,6 +22,7 @@
       <div id="island-drop-slot" class="island-drop-slot"></div>
       <div class="titlebar-right">
         <button id="btn-collection" class="tb-btn" title="Pet Collection"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="5" height="5" rx="1" fill="currentColor" opacity="0.9"/><rect x="8" y="1" width="5" height="5" rx="1" fill="currentColor" opacity="0.5"/><rect x="1" y="8" width="5" height="5" rx="1" fill="currentColor" opacity="0.5"/><rect x="8" y="8" width="5" height="5" rx="1" fill="currentColor" opacity="0.3"/></svg></button>
+        <button id="btn-pet" class="tb-btn" title="Show/Hide floating pet"><svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M5 1h4v1h1v1h1v3h-1v1h1v1h1v2h-1v1H9v1H5v-1H3v-1H2V8h1V7h1V6H3V3h1V2h1z" opacity="0.9"/></svg></button>
         <button id="btn-mini" class="tb-btn" title="Toggle mini mode"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="4" width="10" height="6" rx="3" stroke="currentColor" stroke-width="1.5"/></svg></button>
         <button id="btn-theme" class="tb-btn" title="Theme"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.3"/><path d="M7 1.5A5.5 5.5 0 0 1 7 12.5Z" fill="currentColor"/></svg></button>
         <button id="btn-pin" class="tb-btn" title="Toggle always on top"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 3.5l3-2 3 2v4l-3 2-3-2z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><line x1="7" y1="9" x2="7" y2="13" stroke="currentColor" stroke-width="1.3"/></svg></button>
@@ -67,6 +68,25 @@
         <span class="collection-title">Pet Collection</span>
         <span id="collection-count" class="collection-count">0/14</span>
         <button id="collection-close" class="collection-close">&times;</button>
+      </div>
+      <div class="custom-icon-row">
+        <span>Custom pet image</span>
+        <button id="icon-upload" class="custom-icon-btn">Upload image</button>
+        <button id="icon-reset" class="custom-icon-btn">Reset</button>
+        <input id="icon-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+      </div>
+      <div class="custom-icon-row">
+        <span>Codex spritesheet</span>
+        <button id="sprite-upload" class="custom-icon-btn">Import sheet</button>
+        <button id="sprite-reset" class="custom-icon-btn">Use default pet</button>
+        <input id="sprite-file" type="file" accept="image/png,image/webp" hidden>
+        <span id="sprite-status" class="sprite-status"></span>
+      </div>
+      <div id="sprite-list" class="custom-icon-row sprite-list"></div>
+      <div class="custom-icon-row">
+        <span>Pet transparency</span>
+        <input id="pet-opacity" class="pet-opacity" type="range" min="30" max="100" step="5" value="100">
+        <output id="pet-opacity-val" class="pet-opacity-val">100%</output>
       </div>
       <div id="collection-grid" class="collection-grid"></div>
     </div>
