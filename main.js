@@ -1,8 +1,10 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain, globalShortcut } = require('electron');
 const path = require('path');
+const { applyDashboardHooks } = require('./hooks-config');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
 const { exec } = require('child_process');
 
@@ -71,6 +73,58 @@ expressApp.use((req, _res, next) => {
   next();
 });
 
+// Short summary of a tool call (progress line, permission card) and the full request (card on hover)
+function describeTool(tool, input) {
+  const inp = input && typeof input === 'object' ? input : {};
+  const main = inp.command || inp.file_path || inp.path || inp.url || inp.pattern || inp.query || '';
+  const summary = String(main).split('\n')[0].slice(0, 80);
+  const detail = inp.command
+    ? inp.command + (inp.description ? `\n\n# ${inp.description}` : '')
+    : JSON.stringify(inp, null, 2);
+  return { summary, detail: String(detail).slice(0, 1500) };
+}
+
+// ── Pending permission requests (answered from the pet) ───────────────
+// The PermissionRequest hook's HTTP response is held until the user clicks
+// Allow/Deny on the pet. Claude Code's own dialog stays usable meanwhile;
+// answering there cancels the hook. No decision (timeout, session ended) -> {}.
+const PERM_TIMEOUT_MS = 5 * 60 * 1000;
+const pendingPerms = new Map(); // id -> { id, sessionId, tool, summary, detail, res, timer }
+
+function getPermList() {
+  return Array.from(pendingPerms.values()).map(({ id, sessionId, tool, summary, detail }) =>
+    ({ id, sessionId, tool, summary, detail }));
+}
+
+function broadcastPerms() {
+  broadcast({ type: 'permissions', list: getPermList() });
+}
+
+function settlePerm(id, body) {
+  const p = pendingPerms.get(id);
+  if (!p) return null;
+  clearTimeout(p.timer);
+  pendingPerms.delete(id);
+  p.res.json(body);
+  broadcastPerms();
+  return p;
+}
+
+function clearSessionPerms(sessionId) {
+  for (const p of Array.from(pendingPerms.values())) {
+    if (p.sessionId === sessionId) settlePerm(p.id, {});
+  }
+}
+
+function answerPerm(id, behavior) {
+  const decision = behavior === 'allow'
+    ? { behavior: 'allow' }
+    : { behavior: 'deny', message: 'Denied from the Claude Buddy pet' };
+  const p = settlePerm(id, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+  if (p) updateSession(p.sessionId, { state: 'running', currentTool: null });
+  return p;
+}
+
 // Hook event endpoints
 expressApp.post('/sessions/event', (req, res) => {
   const body = req.body || {};
@@ -82,34 +136,55 @@ expressApp.post('/sessions/event', (req, res) => {
 
   switch (event) {
     case 'SessionStart':
-      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', startTime: Date.now(), currentTool: null, activity: null });
       break;
     case 'UserPromptSubmit':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'running', currentTool: null, activity: 'Thinking…' });
       break;
-    case 'PreToolUse':
-      updateSession(sessionId, { ...base, state: 'running', currentTool: body.tool_name || 'tool' });
+    case 'PreToolUse': {
+      // `activity` survives PostToolUse so the pet can show the last step while Claude thinks
+      const tool = body.tool_name || 'tool';
+      const { summary } = describeTool(tool, body.tool_input);
+      updateSession(sessionId, { ...base, state: 'running', currentTool: tool, activity: summary ? `${tool}: ${summary}` : tool });
       break;
+    }
     case 'PostToolUse':
     case 'PostToolUseFailure':
+      // Answered in the terminal: drop the pet's pending request for this tool call
+      if (body.tool_use_id) settlePerm(body.tool_use_id, {});
       updateSession(sessionId, { ...base, state: 'running', currentTool: null });
       break;
-    case 'PermissionRequest':
+    case 'PermissionRequest': {
       updateSession(sessionId, { ...base, state: 'waiting', currentTool: body.tool_name || null });
-      break;
+      const id = body.tool_use_id || randomUUID();
+      const tool = body.tool_name || 'tool';
+      const entry = { id, sessionId, tool, ...describeTool(tool, body.tool_input), res, timer: null };
+      entry.timer = setTimeout(() => settlePerm(id, {}), PERM_TIMEOUT_MS);
+      pendingPerms.set(id, entry);
+      // Hook cancelled (answered in the terminal): forget the request
+      res.on('close', () => {
+        if (pendingPerms.get(id) !== entry) return;
+        clearTimeout(entry.timer);
+        pendingPerms.delete(id);
+        broadcastPerms();
+      });
+      broadcastPerms();
+      return; // response is sent by settlePerm
+    }
     case 'Notification': {
       const ntype = body.notification_type;
       if (ntype === 'permission_prompt' || ntype === 'elicitation_dialog') {
         updateSession(sessionId, { ...base, state: 'waiting' });
       } else {
-        updateSession(sessionId, { ...base, state: 'idle' });
+        updateSession(sessionId, { ...base, state: 'idle', activity: null });
       }
       break;
     }
     case 'Stop': {
+      clearSessionPerms(sessionId);
       // Only update if session already exists (don't create phantom sessions)
       if (!sessions.has(sessionId)) break;
-      updateSession(sessionId, { ...base, state: 'idle', currentTool: null });
+      updateSession(sessionId, { ...base, state: 'idle', currentTool: null, activity: null });
       // Gacha roll
       const session = sessions.get(sessionId);
       const duration = session ? (Date.now() - (session.startTime || Date.now())) : 0;
@@ -152,6 +227,7 @@ expressApp.post('/sessions/event', (req, res) => {
       break;
     }
     case 'SessionEnd':
+      clearSessionPerms(sessionId);
       sessions.delete(sessionId);
       broadcast({ type: 'sessions', sessions: getSessionList() });
       break;
@@ -165,6 +241,16 @@ expressApp.post('/sessions/event', (req, res) => {
 // REST API
 expressApp.get('/api/sessions', (_req, res) => res.json(getSessionList()));
 expressApp.get('/api/gacha', (_req, res) => res.json(gachaData));
+expressApp.get('/api/permissions', (_req, res) => res.json(getPermList()));
+
+// Answer a pending permission request. The custom header forces a CORS
+// preflight, so a random web page cannot approve tool calls on localhost.
+expressApp.post('/api/permissions/:id', (req, res) => {
+  if (req.get('x-buddy-pet') !== '1') return res.status(403).json({ ok: false });
+  const behavior = req.body && req.body.behavior;
+  if (behavior !== 'allow' && behavior !== 'deny') return res.status(400).json({ ok: false });
+  res.json({ ok: !!answerPerm(req.params.id, behavior) });
+});
 
 // Test endpoint: force a gacha drop (for debugging)
 expressApp.post('/api/gacha/test', (req, res) => {
@@ -269,6 +355,139 @@ function createWindow() {
   });
 }
 
+// ── Floating pet window ───────────────────────────────────────────────
+// GPU compositing draws a stray white title-bar strip on the transparent pet window (Windows).
+// Must run before the app is ready, so it stays at module level.
+app.disableHardwareAcceleration();
+
+const PET_W = 220;
+const PET_H = 190;
+const PET_MAX_H = 460;
+const DEFAULT_HOTKEY = 'CommandOrControl+Alt+B';
+let petWindow = null;
+let petDrag = null;
+
+// Keep a saved position only if it lands on a connected display
+function resolvePetPosition() {
+  const saved = prefs.petPos;
+  if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+    const cx = saved.x + PET_W / 2;
+    const cy = saved.y + PET_H / 2;
+    const visible = screen.getAllDisplays().some(({ workArea: a }) =>
+      cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height);
+    if (visible) return { x: Math.round(saved.x), y: Math.round(saved.y) };
+  }
+  const { workArea } = screen.getPrimaryDisplay();
+  // Default: left of the dashboard's default spot
+  return {
+    x: workArea.x + workArea.width - 340 - 16 - PET_W - 8,
+    y: workArea.y + workArea.height - PET_H - 16,
+  };
+}
+
+function createPetWindow() {
+  const { x, y } = resolvePetPosition();
+  petWindow = new BrowserWindow({
+    width: PET_W,
+    height: PET_H,
+    x,
+    y,
+    title: '',
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  petWindow.setAlwaysOnTop(true, 'screen-saver');
+  // Windows ignores relative levels, so re-raise the pet whenever the dashboard is raised
+  const raisePet = () => {
+    if (petWindow && !petWindow.isDestroyed() && petWindow.isVisible()) petWindow.moveTop();
+  };
+  for (const ev of ['focus', 'blur', 'show']) mainWindow.on(ev, raisePet);
+  petWindow.loadURL(`http://127.0.0.1:${PORT}/pet.html`);
+  petWindow.once('ready-to-show', () => {
+    if (prefs.petVisible !== false) petWindow.showInactive();
+  });
+}
+
+function setPetVisible(visible) {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  if (visible) petWindow.showInactive();
+  else petWindow.hide();
+  prefs.petVisible = visible;
+  saveJSON(PREFS_FILE, prefs);
+}
+
+function togglePet() {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  setPetVisible(!petWindow.isVisible());
+}
+
+// Show/hide the pet from anywhere. Set "hotkey" in prefs.json to change it.
+function registerHotkey() {
+  const accel = prefs.hotkey || DEFAULT_HOTKEY;
+  try {
+    if (!globalShortcut.register(accel, togglePet)) {
+      console.error(`Hotkey ${accel} could not be registered (already in use?)`);
+    }
+  } catch (err) {
+    console.error(`Hotkey ${accel} is invalid:`, err.message);
+  }
+}
+
+ipcMain.on('pet-drag-start', () => {
+  if (!petWindow) return;
+  const [wx, wy] = petWindow.getPosition();
+  const cursor = screen.getCursorScreenPoint();
+  petDrag = { wx, wy, cx: cursor.x, cy: cursor.y };
+});
+
+ipcMain.on('pet-drag-move', () => {
+  if (!petWindow || !petDrag) return;
+  const cursor = screen.getCursorScreenPoint();
+  petWindow.setPosition(
+    Math.round(petDrag.wx + cursor.x - petDrag.cx),
+    Math.round(petDrag.wy + cursor.y - petDrag.cy),
+  );
+});
+
+ipcMain.on('pet-drag-end', (_e, moved) => {
+  petDrag = null;
+  if (!petWindow || !moved) return;
+  // Save the position as if the window had its base height (it grows upward)
+  const b = petWindow.getBounds();
+  prefs.petPos = { x: b.x, y: b.y + b.height - PET_H };
+  saveJSON(PREFS_FILE, prefs);
+});
+
+// The pet grows upward (bottom edge fixed) when the progress list expands
+ipcMain.on('pet-fit', (_e, contentH) => {
+  if (!petWindow || petWindow.isDestroyed() || petDrag) return;
+  const height = Math.max(PET_H, Math.min(PET_MAX_H, Math.round(Number(contentH) || PET_H)));
+  const b = petWindow.getBounds();
+  if (b.height === height) return;
+  const bottom = b.y + b.height;
+  const area = screen.getDisplayMatching(b).workArea;
+  petWindow.setBounds({ x: b.x, y: Math.max(area.y, bottom - height), width: b.width, height });
+});
+
+ipcMain.on('toggle-dashboard', () => {
+  if (mainWindow.isVisible()) {
+    mainWindow.hide();
+  } else {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 function createTrayIcon() {
   // Programmatically draw a 32x32 icon (purple diamond)
   const size = 32;
@@ -295,6 +514,7 @@ function createTray() {
   tray.setToolTip('Claude Dashboard');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show Dashboard', click: () => { mainWindow.show(); mainWindow.focus(); } },
+    { label: 'Show/Hide Pet', click: togglePet },
     { type: 'separator' },
     { label: 'Quit', click: () => { mainWindow.destroy(); app.quit(); } },
   ]));
@@ -313,10 +533,13 @@ app.whenReady().then(() => {
     console.log(`Dashboard server on http://127.0.0.1:${PORT}`);
   });
   createWindow();
+  createPetWindow();
   createTray();
+  registerHotkey();
 });
 
 app.on('window-all-closed', (e) => e.preventDefault());
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 // ── Window control via HTTP ────────────────────────────────────────────
 expressApp.post('/api/window/toggle-pin', (_req, res) => {
@@ -329,6 +552,11 @@ expressApp.post('/api/window/toggle-pin', (_req, res) => {
     mainWindow.setAlwaysOnTop(false);
   }
   res.json({ pinned });
+});
+
+expressApp.post('/api/pet/toggle', (_req, res) => {
+  togglePet();
+  res.json({ visible: !!petWindow && !petWindow.isDestroyed() && petWindow.isVisible() });
 });
 
 expressApp.post('/api/window/minimize', (_req, res) => {
@@ -382,52 +610,7 @@ function ensureHooksConfigured() {
   const settingsPath = path.join(process.env.USERPROFILE || process.env.HOME, '.claude', 'settings.json');
   let settings = {};
   try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
-
-  const hookUrl = `http://127.0.0.1:${PORT}/sessions/event`;
-  const curlCmd = `curl -s -X POST ${hookUrl} -H 'Content-Type: application/json' -d @- > /dev/null 2>&1`;
-  const hookEntry = { matcher: '', hooks: [{ type: 'command', command: curlCmd }] };
-  const isDashboardHook = (hook) => {
-    if (!hook) return false;
-    const target = hook.url || hook.command || '';
-    return target.includes('127.0.0.1:') && target.includes('/sessions/event');
-  };
-
-  const events = [
-    'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
-    'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd',
-  ];
-
-  if (!settings.hooks) settings.hooks = {};
-
-  let changed = false;
-  for (const ev of events) {
-    const existing = Array.isArray(settings.hooks[ev]) ? settings.hooks[ev] : [];
-    let foundDashboardHook = false;
-
-    settings.hooks[ev] = existing.map((entry) => {
-      if (!Array.isArray(entry.hooks)) return entry;
-
-      let entryChanged = false;
-      const hooks = entry.hooks.map((hook) => {
-        if (!isDashboardHook(hook)) return hook;
-        foundDashboardHook = true;
-        if (hook.command === curlCmd && hook.type === 'command') return hook;
-        entryChanged = true;
-        return { type: 'command', command: curlCmd };
-      });
-
-      if (!entryChanged) return entry;
-      changed = true;
-      return { ...entry, hooks };
-    });
-
-    if (!foundDashboardHook) {
-      settings.hooks[ev].push(hookEntry);
-      changed = true;
-    }
-  }
-
-  if (changed) {
+  if (applyDashboardHooks(settings, PORT)) {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
     console.log('Hooks configured in', settingsPath);
   }

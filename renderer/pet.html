@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title></title>
+  <style>
+    html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; font-family: 'Segoe UI', sans-serif; }
+    #stage { width: 220px; min-height: 190px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+    #perm { display: none; box-sizing: border-box; width: 212px; margin-bottom: 6px; padding: 8px 10px; border-radius: 10px; background: #1a1a2e; color: #fff; font-size: 12px; line-height: 1.35; box-shadow: 0 2px 8px rgba(0,0,0,.4); border: 1px solid #e5484d; }
+    #perm.show { display: block; }
+    .perm-title { font-weight: 600; }
+    .perm-from { opacity: .6; font-size: 11px; }
+    .perm-summary { margin-top: 4px; font-family: Consolas, monospace; font-size: 11px; word-break: break-all; opacity: .9; }
+    .perm-detail { display: none; margin: 6px 0 0; padding: 6px; max-height: 130px; overflow: hidden; border-radius: 6px; background: rgba(255,255,255,.08); font: 11px/1.35 Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+    #perm.hover .perm-detail { display: block; }
+    #perm.hover .perm-summary { display: none; }
+    .perm-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+    .perm-actions button { border: 0; border-radius: 6px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; color: #fff; }
+    #perm-allow { background: #30a46c; }
+    #perm-deny { background: #3a3a52; }
+    #perm-more { margin-left: auto; opacity: .6; font-size: 11px; }
+    #bubble { display: none; max-width: 150px; margin-bottom: 2px; padding: 2px 8px; border-radius: 10px; background: #1a1a2e; color: #fff; font-size: 11px; line-height: 1.35; box-shadow: 0 2px 8px rgba(0,0,0,.4); border: 1px solid transparent; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #bubble.done { border-color: #30a46c; }
+    #bubble.ask { border-color: #e5484d; }
+    #bubble.show { display: block; }
+    #pet-wrap { position: relative; width: 88px; height: 63px; cursor: grab; }
+    #pet-wrap.dragging { cursor: grabbing; }
+    #capybara { width: 88px; height: 63px; image-rendering: pixelated; pointer-events: none; }
+    #badge { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; display: none; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+    #badge.wait { display: flex; background: #e5484d; }
+    #badge.run { display: flex; background: #f5a524; animation: pulse 1.2s ease-in-out infinite; }
+    #badge.done { display: flex; background: #30a46c; }
+    #badge.review { display: flex; background: #3e63dd; }
+    #badge.review .count { border-color: #3e63dd; }
+    @keyframes pulse { 50% { transform: scale(1.2); } }
+    #badge svg { width: 14px; height: 14px; }
+    #badge .count { position: absolute; top: -7px; right: -7px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: #1a1a2e; border: 1px solid #f5a524; color: #fff; font-size: 10px; font-weight: 700; line-height: 12px; text-align: center; }
+    #progress { display: none; box-sizing: border-box; max-width: 212px; margin-bottom: 2px; padding: 4px 9px; border-radius: 10px; background: rgba(26,26,46,.92); color: #fff; font-size: 11px; line-height: 1.3; box-shadow: 0 2px 8px rgba(0,0,0,.4); border: 1px solid #f5a524; word-break: break-all; pointer-events: none; }
+    #progress.show { display: block; }
+    #progress .who { opacity: .6; }
+    #progress > div + div { margin-top: 2px; }
+    #progress.compact { display: none; align-items: center; gap: 4px; max-width: 120px; margin-bottom: 12px; padding: 1px 6px; font-size: 10px; line-height: 1.3; white-space: nowrap; }
+    #progress.compact.show { display: flex; }
+    #progress.compact .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    #progress.compact .n { flex: none; }
+  </style>
+</head>
+<body>
+  <div id="stage">
+    <div id="bubble"></div>
+    <div id="perm">
+      <div class="perm-title"></div>
+      <div class="perm-from"></div>
+      <div class="perm-summary"></div>
+      <pre class="perm-detail"></pre>
+      <div class="perm-actions">
+        <button id="perm-allow">Allow</button>
+        <button id="perm-deny">Deny</button>
+        <span id="perm-more"></span>
+      </div>
+    </div>
+    <div id="progress"></div>
+    <div id="pet-wrap">
+      <canvas id="capybara" width="42" height="30"></canvas>
+      <div id="badge"></div>
+    </div>
+  </div>
+  <script src="pets.js"></script>
+  <script src="pet.js"></script>
+</body>
+</html>
