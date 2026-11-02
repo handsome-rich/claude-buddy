@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, screen, ipcMain } = require('electron');
 const path = require('path');
+const { applyDashboardHooks } = require('./hooks-config');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
@@ -382,52 +383,7 @@ function ensureHooksConfigured() {
   const settingsPath = path.join(process.env.USERPROFILE || process.env.HOME, '.claude', 'settings.json');
   let settings = {};
   try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')); } catch {}
-
-  const hookUrl = `http://127.0.0.1:${PORT}/sessions/event`;
-  const curlCmd = `curl -s -X POST ${hookUrl} -H 'Content-Type: application/json' -d @- > /dev/null 2>&1`;
-  const hookEntry = { matcher: '', hooks: [{ type: 'command', command: curlCmd }] };
-  const isDashboardHook = (hook) => {
-    if (!hook) return false;
-    const target = hook.url || hook.command || '';
-    return target.includes('127.0.0.1:') && target.includes('/sessions/event');
-  };
-
-  const events = [
-    'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse',
-    'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd',
-  ];
-
-  if (!settings.hooks) settings.hooks = {};
-
-  let changed = false;
-  for (const ev of events) {
-    const existing = Array.isArray(settings.hooks[ev]) ? settings.hooks[ev] : [];
-    let foundDashboardHook = false;
-
-    settings.hooks[ev] = existing.map((entry) => {
-      if (!Array.isArray(entry.hooks)) return entry;
-
-      let entryChanged = false;
-      const hooks = entry.hooks.map((hook) => {
-        if (!isDashboardHook(hook)) return hook;
-        foundDashboardHook = true;
-        if (hook.command === curlCmd && hook.type === 'command') return hook;
-        entryChanged = true;
-        return { type: 'command', command: curlCmd };
-      });
-
-      if (!entryChanged) return entry;
-      changed = true;
-      return { ...entry, hooks };
-    });
-
-    if (!foundDashboardHook) {
-      settings.hooks[ev].push(hookEntry);
-      changed = true;
-    }
-  }
-
-  if (changed) {
+  if (applyDashboardHooks(settings, PORT)) {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
     console.log('Hooks configured in', settingsPath);
   }
