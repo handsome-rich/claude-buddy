@@ -5,6 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test \"test/*.test.js\"",
     "build": "electron-builder --win portable -c.forceCodeSigning=false",
     "build:install": "electron-builder --win nsis -c.forceCodeSigning=false"
   },
@@ -28,6 +29,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "hooks-config.js",
       "focus-tab.ps1",
       "renderer/**/*",
       "node_modules/**/*"
