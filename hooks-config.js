@@ -4,9 +4,12 @@ const EVENTS = [
   'PostToolUseFailure', 'PermissionRequest', 'Notification', 'Stop', 'SessionEnd',
 ];
 
-function dashboardHook(port) {
-  const command = `curl -s -X POST http://127.0.0.1:${port}/sessions/event -H 'Content-Type: application/json' -d @- > /dev/null 2>&1`;
-  return { type: 'command', command };
+// PermissionRequest prints the server's answer: the pet's Allow/Deny, or {} for no decision
+const PRINTS_ANSWER = new Set(['PermissionRequest']);
+
+function dashboardHook(ev, port) {
+  const curl = `curl -s -X POST http://127.0.0.1:${port}/sessions/event -H 'Content-Type: application/json' -d @-`;
+  return { type: 'command', command: PRINTS_ANSWER.has(ev) ? `${curl} 2>/dev/null` : `${curl} > /dev/null 2>&1` };
 }
 
 function isDashboardHook(hook) {
@@ -18,10 +21,10 @@ const sameHook = (a, b) => a.type === b.type && a.command === b.command;
 
 // Adds or updates buddy's hook for every event, in place. Returns true if settings changed.
 function applyDashboardHooks(settings, port) {
-  const want = dashboardHook(port);
   if (!settings.hooks) settings.hooks = {};
   let changed = false;
   for (const ev of EVENTS) {
+    const want = dashboardHook(ev, port);
     const existing = Array.isArray(settings.hooks[ev]) ? settings.hooks[ev] : [];
     let found = false;
     settings.hooks[ev] = existing.map((entry) => {

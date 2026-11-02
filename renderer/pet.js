@@ -26,12 +26,62 @@ function sessionLabel(s) {
   return s.id.slice(0, 6);
 }
 
+// ── Permission card: Allow/Deny a pending tool request from here ─────
+const perm = document.getElementById('perm');
+let perms = [];
+let hoverTimer = null;
+
+function renderPerm() {
+  if (perms.length === 0) {
+    perm.classList.remove('show', 'hover');
+    renderProgress();
+    return;
+  }
+  const p = perms[0];
+  const s = sessions.find(x => x.id === p.sessionId);
+  perm.querySelector('.perm-title').textContent = `Allow ${p.tool}?`;
+  perm.querySelector('.perm-from').textContent = s ? sessionLabel(s) : '';
+  perm.querySelector('.perm-summary').textContent = p.summary;
+  perm.querySelector('.perm-detail').textContent = p.detail;
+  document.getElementById('perm-more').textContent = perms.length > 1 ? `+${perms.length - 1} more` : '';
+  bubble.classList.remove('show');
+  perm.classList.add('show');
+  renderProgress();
+}
+
+function answerPerm(behavior) {
+  const p = perms[0];
+  if (!p) return;
+  perms = perms.slice(1); // optimistic; the server broadcast confirms
+  renderPerm();
+  fetch(`${API_BASE}/api/permissions/${encodeURIComponent(p.id)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Buddy-Pet': '1' },
+    body: JSON.stringify({ behavior }),
+  }).catch(() => {});
+}
+
+document.getElementById('perm-allow').addEventListener('click', () => answerPerm('allow'));
+document.getElementById('perm-deny').addEventListener('click', () => answerPerm('deny'));
+
+// Hover over the card or the pet shows the full request
+function setHover(on) {
+  clearTimeout(hoverTimer);
+  if (on) perm.classList.add('hover');
+  else hoverTimer = setTimeout(() => perm.classList.remove('hover'), 150);
+}
+for (const el of [perm, wrap]) {
+  el.addEventListener('mouseenter', () => setHover(true));
+  el.addEventListener('mouseleave', () => setHover(false));
+}
+
 // Window height follows the content (main grows it upward)
 new ResizeObserver(() => {
   window.dashboardAPI.petFit(document.getElementById('stage').offsetHeight);
 }).observe(document.getElementById('stage'));
 
 function showBubble(text, sessionId, kind = '') {
+  if (perm.classList.contains('show')) return; // the card already asks
   bubble.textContent = text;
   bubble.title = text; // full text if the bubble is cut with …
   bubble.className = `show ${kind}`.trim();
@@ -72,7 +122,7 @@ let progressAll = false;
 
 function renderProgress() {
   const running = sessions.filter(s => s.state === 'running').sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-  if (!running.length) {
+  if (!running.length || perm.classList.contains('show')) {
     progress.classList.remove('show');
     return;
   }
@@ -153,10 +203,15 @@ function connect() {
       prevStates = null; // reseed silently after a reconnect
       onSessions(list);
     }).catch(() => {});
+    fetch(`${API_BASE}/api/permissions`).then(r => r.json()).then(list => {
+      perms = list;
+      renderPerm();
+    }).catch(() => {});
   };
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'sessions') onSessions(msg.sessions);
+    else if (msg.type === 'permissions') { perms = msg.list; renderPerm(); }
     else if (msg.type === 'gacha_drop') loadUnlocks();
   };
   ws.onclose = () => setTimeout(connect, 2000);

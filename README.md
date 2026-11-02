@@ -104,6 +104,7 @@ A small always-on-top pet that follows your sessions. Your active pet from the c
 - **Status badge:** red when a session needs you, orange with a count while sessions run, blue until you look at finished sessions.
 - **Live progress:** one compact line for the latest step, e.g. `Bash: npm test`. Hover the pet to see one line per running session.
 - **Done and ask bubbles:** `✓ name` when a session finishes, `! name` when it needs you. Click a bubble to focus that session.
+- **Permissions:** when a tool needs approval, a card on the pet shows the request with Allow and Deny. Hover for the full command. Claude Code's own dialog still works; answering there clears the card.
 - **Click** the pet to show or hide the dashboard. **Drag** it anywhere; the position is saved.
 - **Show/hide:** `Ctrl+Alt+B`, the pet button in the title bar, or the tray menu. Change the hotkey with `hotkey` in `prefs.json`.
 

@@ -4,6 +4,7 @@ const { applyDashboardHooks } = require('./hooks-config');
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const fs = require('fs');
 const { exec } = require('child_process');
 
@@ -72,12 +73,56 @@ expressApp.use((req, _res, next) => {
   next();
 });
 
-// One-line summary of a tool call for the pet's progress line, e.g. "Bash: npm test"
+// Short summary of a tool call (progress line, permission card) and the full request (card on hover)
 function describeTool(tool, input) {
   const inp = input && typeof input === 'object' ? input : {};
   const main = inp.command || inp.file_path || inp.path || inp.url || inp.pattern || inp.query || '';
   const summary = String(main).split('\n')[0].slice(0, 80);
-  return summary ? `${tool}: ${summary}` : tool;
+  const detail = inp.command
+    ? inp.command + (inp.description ? `\n\n# ${inp.description}` : '')
+    : JSON.stringify(inp, null, 2);
+  return { summary, detail: String(detail).slice(0, 1500) };
+}
+
+// ── Pending permission requests (answered from the pet) ───────────────
+// The PermissionRequest hook's HTTP response is held until the user clicks
+// Allow/Deny on the pet. Claude Code's own dialog stays usable meanwhile;
+// answering there cancels the hook. No decision (timeout, session ended) -> {}.
+const PERM_TIMEOUT_MS = 5 * 60 * 1000;
+const pendingPerms = new Map(); // id -> { id, sessionId, tool, summary, detail, res, timer }
+
+function getPermList() {
+  return Array.from(pendingPerms.values()).map(({ id, sessionId, tool, summary, detail }) =>
+    ({ id, sessionId, tool, summary, detail }));
+}
+
+function broadcastPerms() {
+  broadcast({ type: 'permissions', list: getPermList() });
+}
+
+function settlePerm(id, body) {
+  const p = pendingPerms.get(id);
+  if (!p) return null;
+  clearTimeout(p.timer);
+  pendingPerms.delete(id);
+  p.res.json(body);
+  broadcastPerms();
+  return p;
+}
+
+function clearSessionPerms(sessionId) {
+  for (const p of Array.from(pendingPerms.values())) {
+    if (p.sessionId === sessionId) settlePerm(p.id, {});
+  }
+}
+
+function answerPerm(id, behavior) {
+  const decision = behavior === 'allow'
+    ? { behavior: 'allow' }
+    : { behavior: 'deny', message: 'Denied from the Claude Buddy pet' };
+  const p = settlePerm(id, { hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+  if (p) updateSession(p.sessionId, { state: 'running', currentTool: null });
+  return p;
 }
 
 // Hook event endpoints
@@ -99,16 +144,33 @@ expressApp.post('/sessions/event', (req, res) => {
     case 'PreToolUse': {
       // `activity` survives PostToolUse so the pet can show the last step while Claude thinks
       const tool = body.tool_name || 'tool';
-      updateSession(sessionId, { ...base, state: 'running', currentTool: tool, activity: describeTool(tool, body.tool_input) });
+      const { summary } = describeTool(tool, body.tool_input);
+      updateSession(sessionId, { ...base, state: 'running', currentTool: tool, activity: summary ? `${tool}: ${summary}` : tool });
       break;
     }
     case 'PostToolUse':
     case 'PostToolUseFailure':
+      // Answered in the terminal: drop the pet's pending request for this tool call
+      if (body.tool_use_id) settlePerm(body.tool_use_id, {});
       updateSession(sessionId, { ...base, state: 'running', currentTool: null });
       break;
-    case 'PermissionRequest':
+    case 'PermissionRequest': {
       updateSession(sessionId, { ...base, state: 'waiting', currentTool: body.tool_name || null });
-      break;
+      const id = body.tool_use_id || randomUUID();
+      const tool = body.tool_name || 'tool';
+      const entry = { id, sessionId, tool, ...describeTool(tool, body.tool_input), res, timer: null };
+      entry.timer = setTimeout(() => settlePerm(id, {}), PERM_TIMEOUT_MS);
+      pendingPerms.set(id, entry);
+      // Hook cancelled (answered in the terminal): forget the request
+      res.on('close', () => {
+        if (pendingPerms.get(id) !== entry) return;
+        clearTimeout(entry.timer);
+        pendingPerms.delete(id);
+        broadcastPerms();
+      });
+      broadcastPerms();
+      return; // response is sent by settlePerm
+    }
     case 'Notification': {
       const ntype = body.notification_type;
       if (ntype === 'permission_prompt' || ntype === 'elicitation_dialog') {
@@ -119,6 +181,7 @@ expressApp.post('/sessions/event', (req, res) => {
       break;
     }
     case 'Stop': {
+      clearSessionPerms(sessionId);
       // Only update if session already exists (don't create phantom sessions)
       if (!sessions.has(sessionId)) break;
       updateSession(sessionId, { ...base, state: 'idle', currentTool: null, activity: null });
@@ -164,6 +227,7 @@ expressApp.post('/sessions/event', (req, res) => {
       break;
     }
     case 'SessionEnd':
+      clearSessionPerms(sessionId);
       sessions.delete(sessionId);
       broadcast({ type: 'sessions', sessions: getSessionList() });
       break;
@@ -177,6 +241,16 @@ expressApp.post('/sessions/event', (req, res) => {
 // REST API
 expressApp.get('/api/sessions', (_req, res) => res.json(getSessionList()));
 expressApp.get('/api/gacha', (_req, res) => res.json(gachaData));
+expressApp.get('/api/permissions', (_req, res) => res.json(getPermList()));
+
+// Answer a pending permission request. The custom header forces a CORS
+// preflight, so a random web page cannot approve tool calls on localhost.
+expressApp.post('/api/permissions/:id', (req, res) => {
+  if (req.get('x-buddy-pet') !== '1') return res.status(403).json({ ok: false });
+  const behavior = req.body && req.body.behavior;
+  if (behavior !== 'allow' && behavior !== 'deny') return res.status(400).json({ ok: false });
+  res.json({ ok: !!answerPerm(req.params.id, behavior) });
+});
 
 // Test endpoint: force a gacha drop (for debugging)
 expressApp.post('/api/gacha/test', (req, res) => {
