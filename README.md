@@ -97,6 +97,17 @@ Every time a Claude Code session ends, there's a chance to hatch a pet. The egg-
 
 Browse all 14 pets. Click any unlocked pet to set it as your active companion. Golden-evolved pets display a star badge and golden border.
 
+### Floating Pet
+
+A small always-on-top pet that follows your sessions. Your active pet from the collection is the one shown.
+
+- **Status badge:** red when a session needs you, orange with a count while sessions run, blue until you look at finished sessions.
+- **Live progress:** one compact line for the latest step, e.g. `Bash: npm test`. Hover the pet to see one line per running session.
+- **Done and ask bubbles:** `✓ name` when a session finishes, `! name` when it needs you. Click a bubble to focus that session.
+- **Click** the pet to show or hide the dashboard. **Drag** it anywhere; the position is saved.
+- **Show/hide:** `Ctrl+Alt+B`, the pet button in the title bar, or the tray menu. Change the hotkey with `hotkey` in `prefs.json`.
+- **Look:** upload your own pet image (also used for the tray icon) and set the pet's transparency in the Pet Collection.
+
 ### Themes
 
 4 built-in themes with opacity slider:
